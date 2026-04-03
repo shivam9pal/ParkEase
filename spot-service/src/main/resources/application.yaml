@@ -1,0 +1,47 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: spot-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/parkease_spot
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:yourpassword}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update          # Applies incremental schema changes — NOT create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true        # Pretty-print SQL in logs
+
+jwt:
+  secret: ${JWT_SECRET}         # MUST be identical to auth-service, vehicle-service, parkinglot-service
+  expiry: 86400000              # 24 hours in milliseconds
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method   # Groups endpoints by HTTP method in Swagger UI
+
+logging:
+  level:
+    com.parkease.spot: DEBUG    # Verbose logging for development
+    org.springframework.security: WARN
+    org.hibernate.SQL: DEBUG
