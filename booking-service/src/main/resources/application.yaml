@@ -1,0 +1,62 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: booking-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/parkease_booking
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # RabbitMQ — fire-and-forget event publishing
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: /
+
+jwt:
+  secret: ${JWT_SECRET}       # MUST match auth, vehicle, parkinglot, spot services
+  expiry: 86400000            # 24 hours in ms — used for reference only (not generated here)
+
+# OpenFeign downstream service URLs
+services:
+  spot:
+    url: ${SPOT_SERVICE_URL:http://localhost:8083}
+  parkinglot:
+    url: ${PARKINGLOT_SERVICE_URL:http://localhost:8082}
+  vehicle:
+    url: ${VEHICLE_SERVICE_URL:http://localhost:8086}
+
+# Auto-expiry scheduler — grace period before a RESERVED PRE_BOOKING is cancelled
+booking:
+  expiry:
+    grace-period-minutes: 30
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
