@@ -1,0 +1,63 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: analytics-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/parkease_analytics
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update        # NEVER create-drop — OccupancyLog is historical data
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: /
+
+jwt:
+  secret: ${JWT_SECRET}       # MUST match ALL other services byte-for-byte
+  expiry: 86400000
+
+services:
+  parkinglot:
+    url: ${PARKINGLOT_SERVICE_URL:http://localhost:8082}
+  payment:
+    url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+  spot:
+    url: ${SPOT_SERVICE_URL:http://localhost:8083}
+
+analytics:
+  snapshot:
+    interval-ms: ${SNAPSHOT_INTERVAL_MS:900000}  # Default: 15 minutes
+  peak-hours:
+    default-top-n: 5
+  occupancy:
+    lookback-days: 30
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
