@@ -12,11 +12,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.List;
+// ❌ REMOVED: CorsConfiguration, CorsConfigurationSource,
+//             UrlBasedCorsConfigurationSource, List
 
 /**
  * Spring Security configuration for spot-service.
@@ -49,7 +47,7 @@ import java.util.List;
  */
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity          // Enables @PreAuthorize at method level
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -62,8 +60,7 @@ public class SecurityConfig {
                 // ── CSRF disabled — stateless REST API, JWT-based ─────────────────
                 .csrf(AbstractHttpConfigurer::disable)
 
-                // ── CORS — allow React dev servers ───────────────────────────────
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // ❌ REMOVED: .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
                 // ── Authorization rules ───────────────────────────────────────────
                 .authorizeHttpRequests(auth -> auth
@@ -79,21 +76,16 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
 
                         // ── Public GET: single spot details ───────────────────────────
-                        // Used by booking-service (pricePerHour) and guest browsers
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/spots/{spotId}"
                         ).permitAll()
 
                         // ── Public GET: all lot-level browse endpoints ─────────────────
-                        // /lot/{lotId}, /lot/{lotId}/available, /lot/{lotId}/type/{t},
-                        // /lot/{lotId}/vehicle/{v}, /lot/{lotId}/floor/{f},
-                        // /lot/{lotId}/ev, /lot/{lotId}/handicapped, /lot/{lotId}/count
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/spots/lot/**"
                         ).permitAll()
 
                         // ── Internal: booking-service status transitions ───────────────
-                        // Accept any valid JWT — no role restriction needed
                         .requestMatchers(HttpMethod.PUT,
                                 "/api/v1/spots/*/reserve",
                                 "/api/v1/spots/*/occupy",
@@ -116,7 +108,7 @@ public class SecurityConfig {
                                 "/api/v1/spots/*"
                         ).hasAnyRole("MANAGER", "ADMIN")
 
-                        // ── Catch-all: any other request must be authenticated ─────────
+                        // ── Catch-all ─────────────────────────────────────────────────
                         .anyRequest().authenticated()
                 )
 
@@ -135,30 +127,5 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // ─────────────────────────────── CORS ─────────────────────────────────────
-
-    /**
-     * CORS policy — allows React dev servers (CRA :3000 and Vite :5173).
-     * Update allowed origins to production URL before deployment.
-     */
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-
-        config.setAllowedOrigins(List.of(
-                "http://localhost:3000",   // React CRA
-                "http://localhost:5173"    // Vite
-        ));
-
-        config.setAllowedMethods(List.of(
-                "GET", "POST", "PUT", "DELETE", "OPTIONS"
-        ));
-
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
+    // ❌ REMOVED: entire corsConfigurationSource() bean
 }

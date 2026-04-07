@@ -19,11 +19,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.List;
+// ❌ REMOVED: CorsConfiguration, CorsConfigurationSource, UrlBasedCorsConfigurationSource, List
 
 @Configuration
 @EnableWebSecurity
@@ -51,44 +48,28 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // ❌ REMOVED: .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
-                        // STATELESS for JWT routes
-                        // OAuth2 needs a brief session for the authorization code flow,
-                        // so we allow session creation only IF_REQUIRED
+                        // Keep IF_REQUIRED — OAuth2 authorization code flow needs a brief session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 )
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
-                // ── OAuth2 Login ────────────────────────────────────────────────
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(userInfo -> userInfo
-                                .userService(oAuth2UserService)       // our custom user service
+                                .userService(oAuth2UserService)
                         )
-                        .successHandler(oAuth2SuccessHandler)    // issues JWT on success
+                        .successHandler(oAuth2SuccessHandler)
                 );
 
         return http.build();
     }
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(
-                "http://localhost:3000",   // React CRA
-                "http://localhost:5173"    // Vite
-        ));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
+    // ❌ REMOVED: entire corsConfigurationSource() bean
 
     @Bean
     public AuthenticationProvider authenticationProvider() {

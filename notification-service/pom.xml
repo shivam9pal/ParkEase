@@ -142,6 +142,12 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- Eureka Client — registers this service with the Eureka server -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+		</dependency>
+
 	</dependencies>
 
 	<build>

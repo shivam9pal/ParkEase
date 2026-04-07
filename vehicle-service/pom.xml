@@ -24,6 +24,7 @@
 	<!-- ✅ Properties -->
 	<properties>
 		<java.version>17</java.version>
+		<spring-cloud.version>2025.0.2</spring-cloud.version>
 		<jjwt.version>0.11.5</jjwt.version>
 		<springdoc.version>2.8.5</springdoc.version>
 	</properties>
@@ -110,7 +111,26 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- Eureka Client — registers this service with the Eureka server -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+		</dependency>
+
 	</dependencies>
+
+	<!-- SPRING CLOUD DEP MGMT -->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<!-- ✅ Build -->
 	<build>

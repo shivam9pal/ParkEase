@@ -12,11 +12,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.List;
+// ❌ REMOVED: CorsConfiguration, CorsConfigurationSource,
+//             UrlBasedCorsConfigurationSource, List
 
 /**
  * Security configuration for vehicle-service.
@@ -35,7 +33,7 @@ import java.util.List;
  */
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity          // enables @PreAuthorize on controller methods
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -58,15 +56,14 @@ public class SecurityConfig {
                 // ── Disable CSRF — REST API is stateless ──
                 .csrf(AbstractHttpConfigurer::disable)
 
-                // ── CORS ──
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // ❌ REMOVED: .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
                 // ── Stateless session — no HttpSession created or used ──
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
 
-                .httpBasic(AbstractHttpConfigurer::disable)   // no HTTP Basic Auth
+                .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
 
                 // ── Endpoint access rules ──
@@ -92,27 +89,5 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CORS — allow React frontend on both Vite and CRA ports
-    // ─────────────────────────────────────────────────────────────────────────
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-
-        config.setAllowedOrigins(List.of(
-                "http://localhost:3000",   // React CRA
-                "http://localhost:5173"    // Vite
-        ));
-
-        config.setAllowedMethods(List.of(
-                "GET", "POST", "PUT", "DELETE", "OPTIONS"
-        ));
-
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
+    // ❌ REMOVED: entire corsConfigurationSource() bean
 }
