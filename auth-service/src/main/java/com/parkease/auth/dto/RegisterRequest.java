@@ -1,6 +1,8 @@
 package com.parkease.auth.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.parkease.auth.entity.User;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -26,4 +28,10 @@ public class RegisterRequest {
     private User.Role role = User.Role.DRIVER;
 
     private String vehiclePlate;
+
+    @JsonIgnore  // ← hides this from Swagger schema and JSON serialization
+    @AssertTrue(message = "Registration as ADMIN is not allowed")
+    public boolean isRoleValid() {
+        return role == null || role != User.Role.ADMIN;
+    }
 }

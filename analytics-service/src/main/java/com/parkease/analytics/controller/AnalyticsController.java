@@ -1,18 +1,35 @@
 package com.parkease.analytics.controller;
 
-import com.parkease.analytics.dto.*;
-import com.parkease.analytics.feign.dto.DailyRevenueDto;
-import com.parkease.analytics.feign.dto.RevenueDto;
-import com.parkease.analytics.service.AnalyticsService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.parkease.analytics.dto.AvgDurationResponse;
+import com.parkease.analytics.dto.DailyReportResponse;
+import com.parkease.analytics.dto.HourlyOccupancyResponse;
+import com.parkease.analytics.dto.LotOccupancyTrendResponse;
+import com.parkease.analytics.dto.LotRevenueTrendResponse;
+import com.parkease.analytics.dto.LotSummaryAnalyticsResponse;
+import com.parkease.analytics.dto.OccupancyRateResponse;
+import com.parkease.analytics.dto.PeakHourResponse;
+import com.parkease.analytics.dto.PlatformOccupancyResponse;
+import com.parkease.analytics.dto.PlatformSummaryResponse;
+import com.parkease.analytics.dto.SpotTypeUtilisationResponse;
+import com.parkease.analytics.enums.Period;
+import com.parkease.analytics.feign.dto.DailyRevenueDto;
+import com.parkease.analytics.feign.dto.RevenueDto;
+import com.parkease.analytics.service.AnalyticsService;
+
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/v1/analytics")
@@ -89,11 +106,45 @@ public class AnalyticsController {
         return ResponseEntity.ok(analyticsService.getPlatformSummary());
     }
 
+    // ─── 10.8.1 Platform Occupancy (ADMIN only) ─────────────────────
+    @GetMapping("/platform/occupancy")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PlatformOccupancyResponse> getPlatformOccupancy(
+            @RequestParam(defaultValue = "WEEKLY") Period period) {
+        return ResponseEntity.ok(analyticsService.getPlatformOccupancy(period));
+    }
+
     // ─── 10.9 Daily Report ───────────────────────────────────────────────
     @GetMapping("/report/{lotId}/daily")
     @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
     public ResponseEntity<DailyReportResponse> getDailyReport(
             @PathVariable UUID lotId) {
         return ResponseEntity.ok(analyticsService.getDailyReport(lotId));
+    }
+
+    // ─── 10.10 Lot Summary Analytics ─────────────────────────────────────
+    @GetMapping("/lots/{lotId}/summary")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
+    public ResponseEntity<LotSummaryAnalyticsResponse> getLotAnalyticsSummary(
+            @PathVariable UUID lotId) {
+        return ResponseEntity.ok(analyticsService.getLotAnalyticsSummary(lotId));
+    }
+
+    // ─── 10.11 Lot Revenue Trend ────────────────────────────────────────
+    @GetMapping("/lots/{lotId}/revenue")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
+    public ResponseEntity<LotRevenueTrendResponse> getLotRevenueTrend(
+            @PathVariable UUID lotId,
+            @RequestParam(defaultValue = "WEEKLY") Period period) {
+        return ResponseEntity.ok(analyticsService.getLotRevenueTrend(lotId, period));
+    }
+
+    // ─── 10.12 Lot Occupancy Trend ──────────────────────────────────────
+    @GetMapping("/lots/{lotId}/occupancy")
+    @PreAuthorize("hasAnyRole('MANAGER', 'ADMIN')")
+    public ResponseEntity<LotOccupancyTrendResponse> getLotOccupancyTrend(
+            @PathVariable UUID lotId,
+            @RequestParam(defaultValue = "WEEKLY") Period period) {
+        return ResponseEntity.ok(analyticsService.getLotOccupancyTrend(lotId, period));
     }
 }

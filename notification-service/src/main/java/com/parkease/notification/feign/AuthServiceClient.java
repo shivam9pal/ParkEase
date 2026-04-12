@@ -11,7 +11,7 @@ import java.util.UUID;
 
 @FeignClient(
         name = "auth-service",
-        url = "${services.auth.url}",
+//        url = "${services.auth.url}",
         configuration = FeignConfig.class
 )
 public interface AuthServiceClient {

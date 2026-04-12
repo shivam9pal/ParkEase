@@ -1,15 +1,16 @@
 package com.parkease.analytics.repository;
 
-import com.parkease.analytics.entity.OccupancyLog;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import com.parkease.analytics.entity.OccupancyLog;
 
 public interface OccupancyLogRepository extends JpaRepository<OccupancyLog, UUID> {
 
@@ -37,17 +38,36 @@ public interface OccupancyLogRepository extends JpaRepository<OccupancyLog, UUID
             UUID lotId, String eventType, LocalDateTime start, LocalDateTime end);
 
     // 7. Average parking duration for a specific lot (CHECKOUT events only)
-    @Query("SELECT AVG(o.durationMinutes) FROM OccupancyLog o " +
-            "WHERE o.lotId = :lotId AND o.eventType = 'CHECKOUT' " +
-            "AND o.durationMinutes IS NOT NULL")
+    @Query("SELECT AVG(o.durationMinutes) FROM OccupancyLog o "
+            + "WHERE o.lotId = :lotId AND o.eventType = 'CHECKOUT' "
+            + "AND o.durationMinutes IS NOT NULL")
     Double avgDurationByLotId(@Param("lotId") UUID lotId);
 
+    // 7a. Alias for avgDurationByLotId (for new endpoints)
+    @Query("SELECT AVG(o.durationMinutes) FROM OccupancyLog o "
+            + "WHERE o.lotId = :lotId AND o.eventType = 'CHECKOUT' "
+            + "AND o.durationMinutes IS NOT NULL")
+    Double avgDurationByLot(@Param("lotId") UUID lotId);
+
+    // 7b. Peak occupancy rate for a specific lot
+    @Query("SELECT MAX(o.occupancyRate) FROM OccupancyLog o "
+            + "WHERE o.lotId = :lotId AND o.occupancyRate IS NOT NULL")
+    Double peakOccupancyByLot(@Param("lotId") UUID lotId);
+
     // 8. Platform-wide average parking duration
-    @Query("SELECT AVG(o.durationMinutes) FROM OccupancyLog o " +
-            "WHERE o.eventType = 'CHECKOUT' AND o.durationMinutes IS NOT NULL")
+    @Query("SELECT AVG(o.durationMinutes) FROM OccupancyLog o "
+            + "WHERE o.eventType = 'CHECKOUT' AND o.durationMinutes IS NOT NULL")
     Double avgDurationPlatform();
 
-    // 9. Data retention cleanup (optional scheduled cleanup)
+    // 9. Platform-wide logs in a time range (platform occupancy analysis)
+    List<OccupancyLog> findByTimestampBetweenOrderByTimestampDesc(
+            LocalDateTime start, LocalDateTime end);
+
+    // 9a. Lot-specific logs in a time range with ordering
+    List<OccupancyLog> findByLotIdAndTimestampBetweenOrderByTimestampDesc(
+            UUID lotId, LocalDateTime start, LocalDateTime end);
+
+    // 10. Data retention cleanup (optional scheduled cleanup)
     @Modifying
     @Query("DELETE FROM OccupancyLog o WHERE o.timestamp < :cutoff")
     int deleteLogsOlderThan(@Param("cutoff") LocalDateTime cutoff);

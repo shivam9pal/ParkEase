@@ -1,8 +1,11 @@
 package com.parkease.payment.service;
 
-import com.parkease.payment.entity.Payment;
-import com.parkease.payment.feign.dto.BookingDetailDto;
-import lombok.extern.slf4j.Slf4j;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.format.DateTimeFormatter;
+
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -12,11 +15,10 @@ import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.time.Duration;
-import java.time.format.DateTimeFormatter;
+import com.parkease.payment.entity.Payment;
+import com.parkease.payment.feign.dto.BookingDetailDto;
+
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @Slf4j
@@ -36,9 +38,9 @@ public class ReceiptGeneratorService {
             doc.addPage(page);
 
             try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
-                float y      = 750f;
+                float y = 750f;
                 float margin = 50f;
-                float gap    = 20f;
+                float gap = 20f;
 
                 // Title
                 cs.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD), 16);
@@ -84,7 +86,7 @@ public class ReceiptGeneratorService {
                         payment.getMode() != null ? payment.getMode().name() : "N/A");
 
                 y = line(cs, margin, y, gap, "Amount Charged: ",
-                        "\u20B9" + payment.getAmount());
+                        "Rs. " + payment.getAmount());
 
                 y = line(cs, margin, y, gap, "Currency:       ",
                         payment.getCurrency());
@@ -113,9 +115,8 @@ public class ReceiptGeneratorService {
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
-
     private float line(PDPageContentStream cs, float x, float y, float gap,
-                       String label, String value) throws IOException {
+            String label, String value) throws IOException {
         cs.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD), 11);
         cs.beginText();
         cs.newLineAtOffset(x, y);

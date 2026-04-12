@@ -1,6 +1,26 @@
 package com.parkease.payment.service;
 
-import com.parkease.payment.dto.*;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.parkease.payment.dto.DailyRevenueResponse;
+import com.parkease.payment.dto.InitiatePaymentRequest;
+import com.parkease.payment.dto.PaymentResponse;
+import com.parkease.payment.dto.PaymentStatusResponse;
+import com.parkease.payment.dto.PaymentSummaryResponse;
+import com.parkease.payment.dto.RevenueResponse;
 import com.parkease.payment.entity.Payment;
 import com.parkease.payment.enums.PaymentMode;
 import com.parkease.payment.enums.PaymentStatus;
@@ -12,33 +32,22 @@ import com.parkease.payment.feign.dto.BookingDetailDto;
 import com.parkease.payment.rabbitmq.PaymentEventPublisher;
 import com.parkease.payment.rabbitmq.dto.BookingEventPayload;
 import com.parkease.payment.repository.PaymentRepository;
+
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentServiceImpl implements PaymentService {
 
-    private final PaymentRepository       paymentRepository;
-    private final PaymentEventPublisher   paymentEventPublisher;
-    private final BookingServiceClient    bookingServiceClient;
+    private final PaymentRepository paymentRepository;
+    private final PaymentEventPublisher paymentEventPublisher;
+    private final BookingServiceClient bookingServiceClient;
     private final ReceiptGeneratorService receiptGeneratorService;
 
     // ─── RabbitMQ: booking.checkout ───────────────────────────────────────────
-
     @Override
     @Transactional
     public PaymentResponse processPaymentFromEvent(BookingEventPayload payload) {
@@ -53,22 +62,20 @@ public class PaymentServiceImpl implements PaymentService {
                 .userId(payload.getUserId())
                 .lotId(payload.getLotId())
                 .amount(payload.getTotalAmount())
-                .status(PaymentStatus.PAID)
-                .mode(PaymentMode.CASH)
-                .transactionId(UUID.randomUUID().toString())
+                .status(PaymentStatus.PENDING)
+                .mode(null)
+                .transactionId(null)
                 .currency("INR")
-                .paidAt(LocalDateTime.now())
+                .paidAt(null)
                 .description("Parking fee for booking " + payload.getBookingId())
                 .build();
 
         Payment saved = paymentRepository.save(payment);
-        log.info("Payment auto-processed for bookingId={}, paymentId={}", payload.getBookingId(), saved.getPaymentId());
-        paymentEventPublisher.publishPaymentCompleted(toResponse(saved));
+        log.info("[Checkout Event] Payment PENDING created for bookingId={}, paymentId={}, amount={}", payload.getBookingId(), saved.getPaymentId(), saved.getAmount());
         return toResponse(saved);
     }
 
     // ─── RabbitMQ: booking.cancelled ──────────────────────────────────────────
-
     @Override
     @Transactional
     public void processRefundFromEvent(BookingEventPayload payload) {
@@ -93,13 +100,13 @@ public class PaymentServiceImpl implements PaymentService {
                 paymentRepository.save(payment);
                 log.info("Payment voided (FAILED) for cancelled booking bookingId={}", payload.getBookingId());
             }
-            default -> log.warn("Payment in terminal status={} for bookingId={}, skipping",
-                    payment.getStatus(), payload.getBookingId());
+            default ->
+                log.warn("Payment in terminal status={} for bookingId={}, skipping",
+                        payment.getStatus(), payload.getBookingId());
         }
     }
 
     // ─── REST: Manual Initiate ─────────────────────────────────────────────────
-
     @Override
     @Transactional
     public PaymentResponse initiatePayment(UUID userId, InitiatePaymentRequest request) {
@@ -113,33 +120,52 @@ public class PaymentServiceImpl implements PaymentService {
             throw new SecurityException("You do not own this booking");
         }
 
-        paymentRepository.findByBookingId(request.getBookingId()).ifPresent(p -> {
-            throw new ConflictException("Payment already processed for this booking");
-        });
-
         String transactionId = (request.getMode() == PaymentMode.CASH) ? null : UUID.randomUUID().toString();
 
-        Payment payment = Payment.builder()
-                .bookingId(request.getBookingId())
-                .userId(userId)
-                .lotId(booking.getLotId())
-                .amount(booking.getTotalAmount())
-                .status(PaymentStatus.PAID)
-                .mode(request.getMode())
-                .transactionId(transactionId)
-                .currency("INR")
-                .paidAt(LocalDateTime.now())
-                .description("Parking fee for booking " + request.getBookingId())
-                .build();
+        // Try to find existing PENDING payment (from checkout event)
+        Optional<Payment> existingPayment = paymentRepository.findByBookingId(request.getBookingId());
+
+        Payment payment;
+        if (existingPayment.isPresent()) {
+            // Update existing PENDING payment to PAID
+            payment = existingPayment.get();
+
+            if (payment.getStatus() == PaymentStatus.PAID) {
+                throw new ConflictException("Payment already completed for this booking");
+            }
+
+            payment.setStatus(PaymentStatus.PAID);
+            payment.setMode(request.getMode());
+            payment.setTransactionId(transactionId);
+            payment.setPaidAt(LocalDateTime.now());
+            log.info("[Initiate Payment] Updated PENDING payment to PAID - bookingId={}, paymentId={}, amount={}",
+                    request.getBookingId(), payment.getPaymentId(), payment.getAmount());
+        } else {
+            // Create new PAID payment (for manual payment without prior checkout)
+            payment = Payment.builder()
+                    .bookingId(request.getBookingId())
+                    .userId(userId)
+                    .lotId(booking.getLotId())
+                    .amount(booking.getTotalAmount())
+                    .status(PaymentStatus.PAID)
+                    .mode(request.getMode())
+                    .transactionId(transactionId)
+                    .currency("INR")
+                    .paidAt(LocalDateTime.now())
+                    .description("Parking fee for booking " + request.getBookingId())
+                    .build();
+            log.info("[Initiate Payment] Created new PAID payment (no checkout event) - bookingId={}, amount={}",
+                    request.getBookingId(), payment.getAmount());
+        }
 
         Payment saved = paymentRepository.save(payment);
         paymentEventPublisher.publishPaymentCompleted(toResponse(saved));
-        log.info("Manual payment initiated for bookingId={}, paymentId={}", request.getBookingId(), saved.getPaymentId());
+        log.info("[Initiate Payment] Payment completed - bookingId={}, paymentId={}, mode={}",
+                request.getBookingId(), saved.getPaymentId(), request.getMode());
         return toResponse(saved);
     }
 
     // ─── Read Operations ───────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public PaymentResponse getPaymentByBookingId(UUID bookingId, UUID requesterId, String requesterRole) {
@@ -166,10 +192,17 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<PaymentResponse> getPaymentsByLot(UUID lotId) {
+        return paymentRepository.findByLotId(lotId)
+                .stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PaymentResponse getPaymentByTransactionId(String transactionId) {
         Payment payment = paymentRepository.findByTransactionId(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Payment not found for transactionId: " + transactionId));
+                "Payment not found for transactionId: " + transactionId));
         return toResponse(payment);
     }
 
@@ -188,7 +221,6 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     // ─── Refund ────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public PaymentResponse processManualRefund(UUID paymentId) {
@@ -206,7 +238,6 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     // ─── Revenue ───────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public RevenueResponse getLotRevenue(UUID lotId, LocalDateTime from, LocalDateTime to) {
@@ -234,12 +265,12 @@ public class PaymentServiceImpl implements PaymentService {
         return grouped.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> DailyRevenueResponse.builder()
-                        .date(e.getKey())
-                        .revenue(e.getValue().stream()
-                                .map(Payment::getAmount)
-                                .reduce(BigDecimal.ZERO, BigDecimal::add))
-                        .transactionCount(e.getValue().size())
-                        .build())
+                .date(e.getKey())
+                .revenue(e.getValue().stream()
+                        .map(Payment::getAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add))
+                .transactionCount(e.getValue().size())
+                .build())
                 .collect(Collectors.toList());
     }
 
@@ -258,42 +289,69 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 
-    // ─── Receipt ───────────────────────────────────────────────────────────────
+    @Override
+    @Transactional(readOnly = true)
+    public List<PaymentSummaryResponse> getAllPayments() {
+        return paymentRepository.findAll()
+                .stream()
+                .map(this::toSummaryResponse)
+                .collect(Collectors.toList());
+    }
 
+    // ─── Receipt ───────────────────────────────────────────────────────────────
     @Override
     @Transactional
     public byte[] generateAndGetReceipt(UUID paymentId, UUID requesterId, String requesterRole) {
+        log.info("[Receipt] Generating receipt for paymentId={}, requesterId={}, role={}", paymentId, requesterId, requesterRole);
+
         Payment payment = findPaymentById(paymentId);
+        log.info("[Receipt] Payment found - Status: {}, UserId: {}", payment.getStatus(), payment.getUserId());
+
         enforceOwnership(payment, requesterId, requesterRole);
+        log.info("[Receipt] Ownership verified");
 
         if (payment.getStatus() != PaymentStatus.PAID && payment.getStatus() != PaymentStatus.REFUNDED) {
+            log.error("[Receipt] Invalid status for receipt: {}", payment.getStatus());
             throw new IllegalStateException(
-                    "Receipt can only be generated for PAID or REFUNDED payments");
+                    "Receipt can only be generated for PAID or REFUNDED payments. Current status: " + payment.getStatus());
         }
+        log.info("[Receipt] Status check passed: {}", payment.getStatus());
 
         if (payment.getReceiptPath() != null && Files.exists(Paths.get(payment.getReceiptPath()))) {
+            log.info("[Receipt] Using cached receipt from: {}", payment.getReceiptPath());
             try {
                 return Files.readAllBytes(Paths.get(payment.getReceiptPath()));
             } catch (IOException e) {
-                log.warn("Cached receipt unreadable, regenerating: {}", e.getMessage());
+                log.warn("[Receipt] Cached receipt unreadable, regenerating: {}", e.getMessage());
             }
         }
 
+        log.info("[Receipt] Fetching booking details for bookingId={}", payment.getBookingId());
         BookingDetailDto booking = fetchBooking(payment.getBookingId());
+        log.info("[Receipt] Booking fetched successfully");
 
         try {
+            log.info("[Receipt] Generating new receipt PDF");
             String path = receiptGeneratorService.generateReceipt(payment, booking);
+            log.info("[Receipt] PDF generated at: {}", path);
+
             payment.setReceiptPath(path);
             paymentRepository.save(payment);
-            return Files.readAllBytes(Paths.get(path));
+            log.info("[Receipt] Receipt path saved to database");
+
+            byte[] bytes = Files.readAllBytes(Paths.get(path));
+            log.info("[Receipt] Receipt bytes read successfully, size: {} bytes", bytes.length);
+            return bytes;
         } catch (IOException e) {
-            log.error("Receipt generation failed for paymentId={}: {}", paymentId, e.getMessage(), e);
-            throw new RuntimeException("Receipt generation failed");
+            log.error("[Receipt] IOException during receipt generation for paymentId={}: {}", paymentId, e.getMessage(), e);
+            throw new RuntimeException("Receipt generation failed: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("[Receipt] Unexpected error during receipt generation for paymentId={}: {}", paymentId, e.getMessage(), e);
+            throw e;
         }
     }
 
     // ─── Private Helpers ───────────────────────────────────────────────────────
-
     private Payment findPaymentById(UUID paymentId) {
         return paymentRepository.findByPaymentId(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found with id: " + paymentId));
@@ -330,6 +388,19 @@ public class PaymentServiceImpl implements PaymentService {
                 .refundedAt(p.getRefundedAt())
                 .description(p.getDescription())
                 .createdAt(p.getCreatedAt())
+                .build();
+    }
+
+    private PaymentSummaryResponse toSummaryResponse(Payment p) {
+        LocalDateTime updatedAt = p.getRefundedAt() != null ? p.getRefundedAt() : p.getPaidAt();
+        return PaymentSummaryResponse.builder()
+                .paymentId(p.getPaymentId())
+                .amount(p.getAmount())
+                .status(p.getStatus())
+                .mode(p.getMode())
+                .transactionId(p.getTransactionId())
+                .createdAt(p.getCreatedAt())
+                .updatedAt(updatedAt)
                 .build();
     }
 }

@@ -2,6 +2,7 @@ package com.parkease.parkinglot.service;
 
 import com.parkease.parkinglot.dto.CreateLotRequest;
 import com.parkease.parkinglot.dto.LotResponse;
+import com.parkease.parkinglot.dto.LotSummaryResponse;
 import com.parkease.parkinglot.dto.UpdateLotRequest;
 import com.parkease.parkinglot.entity.ParkingLot;
 import com.parkease.parkinglot.repository.ParkingLotRepository;
@@ -22,7 +23,6 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     // ─────────────────────────────────────────────────
     // CREATE
     // ─────────────────────────────────────────────────
-
     @Override
     @Transactional
     public LotResponse createLot(UUID managerId, CreateLotRequest request) {
@@ -48,7 +48,6 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     // ─────────────────────────────────────────────────
     // READ
     // ─────────────────────────────────────────────────
-
     @Override
     public LotResponse getLotById(UUID lotId) {
         return toResponse(findOrThrow(lotId));
@@ -110,24 +109,48 @@ public class ParkingLotServiceImpl implements ParkingLotService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<LotSummaryResponse> getAllApprovedLots() {
+        // Public view — only approved lots visible
+        return parkingLotRepository.findByIsApprovedTrue()
+                .stream()
+                .map(this::toSummaryResponse)
+                .collect(Collectors.toList());
+    }
+
     // ─────────────────────────────────────────────────
     // UPDATE
     // ─────────────────────────────────────────────────
-
     @Override
     @Transactional
     public LotResponse updateLot(UUID lotId, UUID requesterId, UpdateLotRequest request) {
         ParkingLot lot = findOrThrow(lotId);
         enforceOwnerAccess(lot, requesterId);
 
-        if (request.getName() != null)      lot.setName(request.getName());
-        if (request.getAddress() != null)   lot.setAddress(request.getAddress());
-        if (request.getCity() != null)      lot.setCity(request.getCity());
-        if (request.getLatitude() != null)  lot.setLatitude(request.getLatitude());
-        if (request.getLongitude() != null) lot.setLongitude(request.getLongitude());
-        if (request.getOpenTime() != null)  lot.setOpenTime(request.getOpenTime());
-        if (request.getCloseTime() != null) lot.setCloseTime(request.getCloseTime());
-        if (request.getImageUrl() != null)  lot.setImageUrl(request.getImageUrl());
+        if (request.getName() != null) {
+            lot.setName(request.getName());
+        }
+        if (request.getAddress() != null) {
+            lot.setAddress(request.getAddress());
+        }
+        if (request.getCity() != null) {
+            lot.setCity(request.getCity());
+        }
+        if (request.getLatitude() != null) {
+            lot.setLatitude(request.getLatitude());
+        }
+        if (request.getLongitude() != null) {
+            lot.setLongitude(request.getLongitude());
+        }
+        if (request.getOpenTime() != null) {
+            lot.setOpenTime(request.getOpenTime());
+        }
+        if (request.getCloseTime() != null) {
+            lot.setCloseTime(request.getCloseTime());
+        }
+        if (request.getImageUrl() != null) {
+            lot.setImageUrl(request.getImageUrl());
+        }
 
         return toResponse(parkingLotRepository.save(lot));
     }
@@ -152,7 +175,6 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     // ─────────────────────────────────────────────────
     // DELETE
     // ─────────────────────────────────────────────────
-
     @Override
     @Transactional
     public void deleteLot(UUID lotId, UUID requesterId, String requesterRole) {
@@ -166,7 +188,6 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     // ─────────────────────────────────────────────────
     // ATOMIC SPOT COUNTER — called by booking-service
     // ─────────────────────────────────────────────────
-
     @Override
     @Transactional
     public void decrementAvailable(UUID lotId) {
@@ -192,15 +213,14 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     // ─────────────────────────────────────────────────
     // PRIVATE HELPERS
     // ─────────────────────────────────────────────────
-
     private ParkingLot findOrThrow(UUID lotId) {
         return parkingLotRepository.findByLotId(lotId)
                 .orElseThrow(() -> new RuntimeException("Parking lot not found with id: " + lotId));
     }
 
     /**
-     * Throws 403-equivalent exception if caller is not the lot's manager.
-     * Used by update / toggle / delete operations.
+     * Throws 403-equivalent exception if caller is not the lot's manager. Used
+     * by update / toggle / delete operations.
      */
     private void enforceOwnerAccess(ParkingLot lot, UUID requesterId) {
         if (!lot.getManagerId().equals(requesterId)) {
@@ -223,6 +243,19 @@ public class ParkingLotServiceImpl implements ParkingLotService {
                 .openTime(lot.getOpenTime())
                 .closeTime(lot.getCloseTime())
                 .imageUrl(lot.getImageUrl())
+                .isApproved(lot.getIsApproved())
+                .createdAt(lot.getCreatedAt())
+                .build();
+    }
+
+    private LotSummaryResponse toSummaryResponse(ParkingLot lot) {
+        return LotSummaryResponse.builder()
+                .lotId(lot.getLotId())
+                .name(lot.getName())
+                .address(lot.getAddress())
+                .managerId(lot.getManagerId())
+                .totalSpots(lot.getTotalSpots())
+                .availableSpots(lot.getAvailableSpots())
                 .isApproved(lot.getIsApproved())
                 .createdAt(lot.getCreatedAt())
                 .build();

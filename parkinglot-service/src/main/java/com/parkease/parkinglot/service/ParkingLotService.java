@@ -1,11 +1,12 @@
 package com.parkease.parkinglot.service;
 
-import com.parkease.parkinglot.dto.CreateLotRequest;
-import com.parkease.parkinglot.dto.LotResponse;
-import com.parkease.parkinglot.dto.UpdateLotRequest;
-
 import java.util.List;
 import java.util.UUID;
+
+import com.parkease.parkinglot.dto.CreateLotRequest;
+import com.parkease.parkinglot.dto.LotResponse;
+import com.parkease.parkinglot.dto.LotSummaryResponse;
+import com.parkease.parkinglot.dto.UpdateLotRequest;
 
 public interface ParkingLotService {
 
@@ -22,6 +23,8 @@ public interface ParkingLotService {
     List<LotResponse> searchLots(String keyword);
 
     List<LotResponse> getAllLots();
+
+    List<LotSummaryResponse> getAllApprovedLots();
 
     List<LotResponse> getPendingLots();
 

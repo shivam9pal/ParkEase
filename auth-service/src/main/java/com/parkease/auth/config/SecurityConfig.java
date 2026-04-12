@@ -7,6 +7,7 @@ import com.parkease.auth.security.oauth2.OAuth2UserServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -20,8 +21,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-// ❌ REMOVED: CorsConfiguration, CorsConfigurationSource, UrlBasedCorsConfigurationSource, List
-
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -33,6 +32,7 @@ public class SecurityConfig {
     private final OAuth2UserServiceImpl oAuth2UserService;
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
 
+    // ── Existing public endpoints (UNCHANGED) ─────────────────────────────────
     private static final String[] PUBLIC_ENDPOINTS = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
@@ -44,17 +44,42 @@ public class SecurityConfig {
             "/swagger-ui.html"
     };
 
+    // ── New OTP public endpoints ───────────────────────────────────────────────
+    private static final String[] OTP_PUBLIC_ENDPOINTS = {
+            "/api/v1/auth/send-otp",
+            "/api/v1/auth/verify-otp",
+            "/api/v1/auth/forgot-password",
+            "/api/v1/auth/reset-password"
+    };
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                // ❌ REMOVED: .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
+
+                        // ── Existing public endpoints (UNCHANGED) ─────────────
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+
+                        // ── New OTP endpoints (public) ─────────────────────────
+                        .requestMatchers(OTP_PUBLIC_ENDPOINTS).permitAll()
+
+                        // ── New Admin public endpoint ──────────────────────────
+                        .requestMatchers("/api/v1/auth/admin/login").permitAll()
+
+                        // ── New Admin protected endpoints (ADMIN role only) ─────
+                        // isSuperAdmin check is handled inside the service layer
+                        .requestMatchers("/api/v1/auth/admin/create").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/auth/admin/all").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE,
+                                "/api/v1/auth/admin/**").hasRole("ADMIN")
+
+                        // ── Everything else needs authentication ───────────────
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
-                        // Keep IF_REQUIRED — OAuth2 authorization code flow needs a brief session
+                        // Keep IF_REQUIRED — OAuth2 authorization code flow needs
+                        // a brief session. JWT routes remain stateless.
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 )
                 .authenticationProvider(authenticationProvider())
@@ -68,8 +93,6 @@ public class SecurityConfig {
 
         return http.build();
     }
-
-    // ❌ REMOVED: entire corsConfigurationSource() bean
 
     @Bean
     public AuthenticationProvider authenticationProvider() {

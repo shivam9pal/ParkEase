@@ -8,7 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 @Component
@@ -18,19 +18,22 @@ public class SystemTokenProvider {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
-    // ─── 0.11.5 API: .setSubject() .addClaims() .setIssuedAt() .setExpiration() .signWith() ───
+    // ─── Unified Signing Key (MATCH ALL SERVICES) ────────────────────────────
+
+    private SecretKey getSigningKey() {
+        return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+    }
+
+    // ─── Generate Internal System Token ─────────────────────────────────────
 
     public String generateSystemToken() {
-        byte[] keyBytes = Base64.getDecoder().decode(jwtSecret);
-        SecretKey key = Keys.hmacShaKeyFor(keyBytes);
-
         return Jwts.builder()
-                .setSubject("system@parkease.internal")             // ✅ 0.11.5
+                .setSubject("system@parkease.internal")
                 .claim("userId", "00000000-0000-0000-0000-000000000000")
                 .claim("role", "ADMIN")
-                .setIssuedAt(new Date())                            // ✅ 0.11.5
-                .setExpiration(new Date(System.currentTimeMillis() + 3_600_000)) // ✅ 0.11.5
-                .signWith(key, SignatureAlgorithm.HS256)            // ✅ 0.11.5 needs algo
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 3_600_000)) // 1 hour
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 }

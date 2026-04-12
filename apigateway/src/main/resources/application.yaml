@@ -1,6 +1,8 @@
 server:
   port: 8080
 
+
+
 spring:
   application:
     name: api-gateway
@@ -51,6 +53,27 @@ spring:
           uri: lb://analytics-service
           predicates:
             - Path=/api/v1/analytics/**
+
+cors:
+  allowed-origins:
+    - http://localhost:3000      # React CRA
+    - http://localhost:5173
+    - http://localhost:5175       
+    - http://localhost:5174      # Vite (alt)
+    - http://127.0.0.1:3000      # Localhost alternative
+    - http://localhost:3001      # Production frontend
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PATCH
+    - OPTIONS
+  allowed-headers:
+    - "*"
+  allow-credentials: true
+  max-age: 3600  # Preflight cache duration in seconds
+
 
 eureka:
   client:

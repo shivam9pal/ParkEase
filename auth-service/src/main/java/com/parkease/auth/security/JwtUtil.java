@@ -1,11 +1,13 @@
 package com.parkease.auth.security;
 
+import com.parkease.auth.entity.User;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
@@ -21,7 +23,7 @@ public class JwtUtil {
     @Value("${jwt.expiry}")
     private long jwtExpiry;
 
-    // ── Generate token ──────────────────────────────────────────────────────────
+    // ── Generate token (EXISTING — unchanged) ──────────────────────────────────
 
     public String generateToken(String email, String role, String userId) {
         Map<String, Object> claims = new HashMap<>();
@@ -29,6 +31,20 @@ public class JwtUtil {
         claims.put("userId", userId);
         return buildToken(claims, email, jwtExpiry);
     }
+
+    // ── Generate Admin token (NEW) ─────────────────────────────────────────────
+    // Adds extra isSuperAdmin claim on top of standard role + userId claims.
+    // Other services only read role=ADMIN from JWT — isSuperAdmin is ignored by them silently.
+
+    public String generateAdminToken(String email, String adminId, User.Role role, boolean isSuperAdmin) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("role", role.name());
+        claims.put("userId", adminId);
+        claims.put("isSuperAdmin", isSuperAdmin);
+        return buildToken(claims, email, jwtExpiry);
+    }
+
+    // ── Shared token builder (EXISTING — unchanged) ────────────────────────────
 
     private String buildToken(Map<String, Object> extraClaims, String subject, long expiration) {
         return Jwts.builder()
@@ -40,7 +56,7 @@ public class JwtUtil {
                 .compact();
     }
 
-    // ── Validate token ──────────────────────────────────────────────────────────
+    // ── Validate token (EXISTING — unchanged) ──────────────────────────────────
 
     public boolean isTokenValid(String token, String userEmail) {
         final String email = extractEmail(token);
@@ -51,7 +67,7 @@ public class JwtUtil {
         return extractExpiration(token).before(new Date());
     }
 
-    // ── Extract claims ──────────────────────────────────────────────────────────
+    // ── Extract claims (EXISTING — unchanged) ──────────────────────────────────
 
     public String extractEmail(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -69,6 +85,17 @@ public class JwtUtil {
         return extractClaim(token, Claims::getExpiration);
     }
 
+    // ── Extract isSuperAdmin claim (NEW) ───────────────────────────────────────
+    // Returns false safely if claim is absent (e.g. regular user tokens)
+
+    public boolean extractIsSuperAdmin(String token) {
+        return extractClaim(token, claims -> {
+            Object val = claims.get("isSuperAdmin");
+            if (val == null) return false;
+            return Boolean.TRUE.equals(val);
+        });
+    }
+
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
         final Claims claims = extractAllClaims(token);
         return claimsResolver.apply(claims);
@@ -83,8 +110,7 @@ public class JwtUtil {
     }
 
     private Key getSigningKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
+        return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
     }
 
     public long getJwtExpiry() {

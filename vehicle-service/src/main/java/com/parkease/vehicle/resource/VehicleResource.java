@@ -1,10 +1,28 @@
 package com.parkease.vehicle.resource;
 
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.parkease.vehicle.dto.RegisterVehicleRequest;
 import com.parkease.vehicle.dto.UpdateVehicleRequest;
 import com.parkease.vehicle.dto.VehicleResponse;
 import com.parkease.vehicle.entity.VehicleType;
 import com.parkease.vehicle.service.VehicleService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -13,30 +31,19 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 /**
  * REST controller for vehicle-service.
  *
- * Base path : /api/v1/vehicles
- * Port      : 8086
+ * Base path : /api/v1/vehicles Port : 8086
  *
- * ── Auth Rules ──
- *  DRIVER  → can only manage their own vehicles (ownerId == JWT userId)
- *  ADMIN   → can access any vehicle / all vehicles
- *  Any JWT → can read vehicle type and EV status (used by booking-service)
+ * ── Auth Rules ── DRIVER → can only manage their own vehicles (ownerId == JWT
+ * userId) ADMIN → can access any vehicle / all vehicles Any JWT → can read
+ * vehicle type and EV status (used by booking-service)
  *
- * ── ownerId source ──
- *  ALWAYS extracted from the validated JWT token (via SecurityContext).
- *  NEVER accepted from request body — prevents privilege escalation.
+ * ── ownerId source ── ALWAYS extracted from the validated JWT token (via
+ * SecurityContext). NEVER accepted from request body — prevents privilege
+ * escalation.
  */
 @RestController
 @RequestMapping("/api/v1/vehicles")
@@ -53,15 +60,15 @@ public class VehicleResource {
     //    ownerId is extracted from JWT, never from request body
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Register a new vehicle",
-            description = "Registers a vehicle for the authenticated driver. " +
-                    "The ownerId is automatically extracted from the JWT token — " +
-                    "it must NOT be passed in the request body."
+            summary = "Register a new vehicle",
+            description = "Registers a vehicle for the authenticated driver. "
+            + "The ownerId is automatically extracted from the JWT token — "
+            + "it must NOT be passed in the request body."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Vehicle registered successfully"),
-            @ApiResponse(responseCode = "400", description = "Validation error or duplicate license plate"),
-            @ApiResponse(responseCode = "401", description = "Missing or invalid JWT token")
+        @ApiResponse(responseCode = "201", description = "Vehicle registered successfully"),
+        @ApiResponse(responseCode = "400", description = "Validation error or duplicate license plate"),
+        @ApiResponse(responseCode = "401", description = "Missing or invalid JWT token")
     })
     @PostMapping("/register")
     public ResponseEntity<VehicleResponse> registerVehicle(
@@ -80,24 +87,28 @@ public class VehicleResource {
     //    Also called by booking-service via RestTemplate
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Get vehicle by ID",
-            description = "Fetches a vehicle by its UUID. " +
-                    "A DRIVER can only retrieve their own vehicle. " +
-                    "ADMIN can retrieve any vehicle. " +
-                    "booking-service also calls this endpoint via RestTemplate."
+            summary = "Get vehicle by ID",
+            description = "Fetches a vehicle by its UUID. "
+            + "A DRIVER can only retrieve their own vehicle. "
+            + "ADMIN can retrieve any vehicle. "
+            + "booking-service also calls this endpoint via RestTemplate."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Vehicle found"),
-            @ApiResponse(responseCode = "403", description = "Driver accessing another driver's vehicle"),
-            @ApiResponse(responseCode = "404", description = "Vehicle not found")
+        @ApiResponse(responseCode = "200", description = "Vehicle found"),
+        @ApiResponse(responseCode = "403", description = "Driver accessing another driver's vehicle"),
+        @ApiResponse(responseCode = "404", description = "Vehicle not found")
     })
     @GetMapping("/{vehicleId}")
     public ResponseEntity<VehicleResponse> getVehicleById(
             @Parameter(description = "Vehicle UUID") @PathVariable UUID vehicleId
     ) {
-        log.debug("GET /{} — requester={}", vehicleId, getLoggedInUserId());
+        long startTime = System.currentTimeMillis();
+        log.debug("[VehicleResource] GET /{} — requester={}", vehicleId, getLoggedInUserId());
 
         VehicleResponse response = vehicleService.getVehicleById(vehicleId);
+
+        long duration = System.currentTimeMillis() - startTime;
+        log.info("[VehicleResource] GET /{} completed in {}ms", vehicleId, duration);
 
         // ── Owner check: DRIVER can only view their own vehicle ──
         enforceOwnerOrAdmin(response.getOwnerId());
@@ -110,14 +121,14 @@ public class VehicleResource {
     //    Get all vehicles for a driver — DRIVER (own) or ADMIN
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Get all vehicles by owner",
-            description = "Returns all vehicles registered to a specific driver. " +
-                    "A DRIVER can only query their own ownerId. " +
-                    "ADMIN can query any ownerId."
+            summary = "Get all vehicles by owner",
+            description = "Returns all vehicles registered to a specific driver. "
+            + "A DRIVER can only query their own ownerId. "
+            + "ADMIN can query any ownerId."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Vehicle list returned (empty list if none)"),
-            @ApiResponse(responseCode = "403", description = "Driver querying another driver's vehicles")
+        @ApiResponse(responseCode = "200", description = "Vehicle list returned (empty list if none)"),
+        @ApiResponse(responseCode = "403", description = "Driver querying another driver's vehicles")
     })
     @GetMapping("/owner/{ownerId}")
     public ResponseEntity<List<VehicleResponse>> getVehiclesByOwner(
@@ -138,15 +149,15 @@ public class VehicleResource {
     //    Find vehicle by license plate — DRIVER or ADMIN
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Find vehicle by license plate",
-            description = "Global license plate lookup. " +
-                    "A DRIVER can only retrieve their own vehicle's data. " +
-                    "ADMIN can retrieve any vehicle."
+            summary = "Find vehicle by license plate",
+            description = "Global license plate lookup. "
+            + "A DRIVER can only retrieve their own vehicle's data. "
+            + "ADMIN can retrieve any vehicle."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Vehicle found"),
-            @ApiResponse(responseCode = "403", description = "Driver accessing another driver's vehicle"),
-            @ApiResponse(responseCode = "404", description = "No vehicle with that plate")
+        @ApiResponse(responseCode = "200", description = "Vehicle found"),
+        @ApiResponse(responseCode = "403", description = "Driver accessing another driver's vehicle"),
+        @ApiResponse(responseCode = "404", description = "No vehicle with that plate")
     })
     @GetMapping("/plate/{licensePlate}")
     public ResponseEntity<VehicleResponse> getByLicensePlate(
@@ -169,13 +180,13 @@ public class VehicleResource {
     //    SecurityConfig enforces hasRole("ADMIN") at the filter level
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Get all vehicles [ADMIN]",
-            description = "Returns every vehicle in the system regardless of owner. " +
-                    "Requires ADMIN role — enforced at both SecurityConfig and method level."
+            summary = "Get all vehicles [ADMIN]",
+            description = "Returns every vehicle in the system regardless of owner. "
+            + "Requires ADMIN role — enforced at both SecurityConfig and method level."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Full vehicle list returned"),
-            @ApiResponse(responseCode = "403", description = "Non-ADMIN attempting access")
+        @ApiResponse(responseCode = "200", description = "Full vehicle list returned"),
+        @ApiResponse(responseCode = "403", description = "Non-ADMIN attempting access")
     })
     @GetMapping("/all")
     public ResponseEntity<List<VehicleResponse>> getAllVehicles() {
@@ -190,15 +201,15 @@ public class VehicleResource {
     //    Update vehicle — DRIVER (own vehicle only)
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Update vehicle details",
-            description = "Partially updates a vehicle's make, model, color, vehicleType, or isEV flag. " +
-                    "Only the vehicle owner (DRIVER) can update. " +
-                    "licensePlate and ownerId cannot be changed after registration."
+            summary = "Update vehicle details",
+            description = "Partially updates a vehicle's make, model, color, vehicleType, or isEV flag. "
+            + "Only the vehicle owner (DRIVER) can update. "
+            + "licensePlate and ownerId cannot be changed after registration."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Vehicle updated successfully"),
-            @ApiResponse(responseCode = "403", description = "Driver updating another driver's vehicle"),
-            @ApiResponse(responseCode = "404", description = "Vehicle not found")
+        @ApiResponse(responseCode = "200", description = "Vehicle updated successfully"),
+        @ApiResponse(responseCode = "403", description = "Driver updating another driver's vehicle"),
+        @ApiResponse(responseCode = "404", description = "Vehicle not found")
     })
     @PutMapping("/{vehicleId}")
     public ResponseEntity<VehicleResponse> updateVehicle(
@@ -220,15 +231,15 @@ public class VehicleResource {
     //    Soft delete — DRIVER (own vehicle only)
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Delete (soft-delete) a vehicle",
-            description = "Sets the vehicle's isActive flag to false. " +
-                    "Records are never hard-deleted — booking history depends on them. " +
-                    "Only the vehicle owner (DRIVER) can delete."
+            summary = "Delete (soft-delete) a vehicle",
+            description = "Sets the vehicle's isActive flag to false. "
+            + "Records are never hard-deleted — booking history depends on them. "
+            + "Only the vehicle owner (DRIVER) can delete."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Vehicle deleted (soft)"),
-            @ApiResponse(responseCode = "403", description = "Driver deleting another driver's vehicle"),
-            @ApiResponse(responseCode = "404", description = "Vehicle not found")
+        @ApiResponse(responseCode = "204", description = "Vehicle deleted (soft)"),
+        @ApiResponse(responseCode = "403", description = "Driver deleting another driver's vehicle"),
+        @ApiResponse(responseCode = "404", description = "Vehicle not found")
     })
     @DeleteMapping("/{vehicleId}")
     public ResponseEntity<Void> deleteVehicle(
@@ -249,13 +260,13 @@ public class VehicleResource {
     //    Called by booking-service to validate spot compatibility
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Get vehicle type",
-            description = "Returns the VehicleType enum string (TWO_WHEELER / FOUR_WHEELER / HEAVY). " +
-                    "Used by booking-service to validate spot compatibility at booking time."
+            summary = "Get vehicle type",
+            description = "Returns the VehicleType enum string (TWO_WHEELER / FOUR_WHEELER / HEAVY). "
+            + "Used by booking-service to validate spot compatibility at booking time."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "VehicleType returned as plain string"),
-            @ApiResponse(responseCode = "404", description = "Vehicle not found")
+        @ApiResponse(responseCode = "200", description = "VehicleType returned as plain string"),
+        @ApiResponse(responseCode = "404", description = "Vehicle not found")
     })
     @GetMapping("/{vehicleId}/type")
     public ResponseEntity<VehicleType> getVehicleType(
@@ -273,14 +284,14 @@ public class VehicleResource {
     //    booking-service calls this to assign EV-charging spots
     // ═══════════════════════════════════════════════════════════════════════
     @Operation(
-            summary     = "Check if vehicle is electric (EV)",
-            description = "Returns true/false. " +
-                    "booking-service calls this via RestTemplate to determine whether " +
-                    "to assign the vehicle to an EV-charging spot."
+            summary = "Check if vehicle is electric (EV)",
+            description = "Returns true/false. "
+            + "booking-service calls this via RestTemplate to determine whether "
+            + "to assign the vehicle to an EV-charging spot."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Boolean EV status returned"),
-            @ApiResponse(responseCode = "404", description = "Vehicle not found")
+        @ApiResponse(responseCode = "200", description = "Boolean EV status returned"),
+        @ApiResponse(responseCode = "404", description = "Vehicle not found")
     })
     @GetMapping("/{vehicleId}/isEV")
     public ResponseEntity<Boolean> isEVVehicle(
@@ -295,14 +306,13 @@ public class VehicleResource {
     // ═══════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS — SecurityContext extraction + owner checks
     // ═══════════════════════════════════════════════════════════════════════
-
     /**
      * Extracts the logged-in user's UUID from Spring SecurityContext.
      * JwtAuthFilter stores it in authentication.getDetails() as a Map.
      */
     @SuppressWarnings("unchecked")
     private UUID getLoggedInUserId() {
-        var auth    = SecurityContextHolder.getContext().getAuthentication();
+        var auth = SecurityContextHolder.getContext().getAuthentication();
         var details = (Map<String, Object>) auth.getDetails();
         return (UUID) details.get("userId");
     }
@@ -312,24 +322,24 @@ public class VehicleResource {
      */
     @SuppressWarnings("unchecked")
     private String getLoggedInUserRole() {
-        var auth    = SecurityContextHolder.getContext().getAuthentication();
+        var auth = SecurityContextHolder.getContext().getAuthentication();
         var details = (Map<String, Object>) auth.getDetails();
         return (String) details.get("role");
     }
 
     /**
-     * DRIVER can only access their own resource.
-     * ADMIN can access any resource.
+     * DRIVER can only access their own resource. ADMIN can access any resource.
      *
-     * Throws AccessDeniedException (→ 403) if a DRIVER tries to
-     * access a vehicle belonging to a different owner.
+     * Throws AccessDeniedException (→ 403) if a DRIVER tries to access a
+     * vehicle belonging to a different owner.
      */
     private void enforceOwnerOrAdmin(UUID resourceOwnerId) {
-        String role          = getLoggedInUserRole();
-        UUID   loggedInUserId = getLoggedInUserId();
+        String role = getLoggedInUserRole();
+        UUID loggedInUserId = getLoggedInUserId();
 
-        if ("ADMIN".equals(role)) return; // Admin passes all checks
-
+        if ("ADMIN".equals(role)) {
+            return; // Admin passes all checks
+        }
         if (!loggedInUserId.equals(resourceOwnerId)) {
             log.warn("403: userId={} attempted to access resource owned by {}",
                     loggedInUserId, resourceOwnerId);

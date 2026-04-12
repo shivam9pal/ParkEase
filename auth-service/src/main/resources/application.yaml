@@ -14,7 +14,7 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     show-sql: true
     properties:
       hibernate:
@@ -45,6 +45,23 @@ jwt:
   secret: ${JWT_SECRET}
   expiry: 86400000
 
+otp:
+  expiry-minutes: 10
+  resend-window-seconds: 30
+  max-attempts: 5
+  lockout-duration-hours: 2
+  max-verify-attempts: 3
+
+resend:
+  api-key: ${RESEND_API_KEY}
+  from-email: ${RESEND_FROM_EMAIL:reply@smartmeeter.online}
+  from-name: ${RESEND_FROM_NAME:ParkEase}
+
+admin:
+  seed-email: ${ADMIN_SEED_EMAIL:admin@parkease.com}
+  seed-password: ${ADMIN_SEED_PASSWORD:Admin@ParkEase123}
+  seed-name: ${ADMIN_SEED_NAME:Super Admin}
+
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -59,3 +76,5 @@ eureka:
   instance:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${server.port}
+
+debug: true

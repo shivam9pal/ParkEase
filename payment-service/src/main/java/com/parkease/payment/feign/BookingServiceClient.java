@@ -9,7 +9,7 @@ import java.util.UUID;
 
 @FeignClient(
         name = "booking-service",
-        url = "${services.booking.url}",
+//        url = "${services.booking.url}",
         configuration = FeignConfig.class
 )
 public interface BookingServiceClient {

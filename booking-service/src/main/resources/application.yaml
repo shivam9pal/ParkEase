@@ -44,6 +44,18 @@ services:
   vehicle:
     url: lb://vehicle-service
 
+# Feign timeout and retry configuration
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 10000    # 10 seconds
+        readTimeout: 30000       # 30 seconds
+  retry:
+    enabled: true
+    max-attempts: 3
+    period: 1000
+
 
 
 
