@@ -38,6 +38,8 @@ public interface AuthService {
 
     UserProfileResponse updateProfile(UUID userId, UpdateProfileRequest request);
 
+    UserProfileResponse uploadAndUpdateProfilePicture(UUID userId, org.springframework.web.multipart.MultipartFile file);
+
     void changePassword(UUID userId, ChangePasswordRequest request);
 
     void deactivateAccount(UUID userId);

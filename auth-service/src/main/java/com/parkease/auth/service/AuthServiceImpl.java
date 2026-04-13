@@ -32,6 +32,7 @@ import com.parkease.auth.entity.Admin;
 import com.parkease.auth.entity.OtpVerification;
 import com.parkease.auth.entity.User;
 import com.parkease.auth.enums.OtpPurpose;
+import com.parkease.auth.feign.MediaServiceClient;
 import com.parkease.auth.repository.AdminRepository;
 import com.parkease.auth.repository.OtpVerificationRepository;
 import com.parkease.auth.repository.UserRepository;
@@ -53,6 +54,7 @@ public class AuthServiceImpl implements AuthService {
     private final AdminRepository adminRepository;
     private final EmailService emailService;
     private final OtpConfig otpConfig;
+    private final MediaServiceClient mediaServiceClient;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // EXISTING METHODS — only register() has OTP guard added at the top
@@ -200,6 +202,61 @@ public class AuthServiceImpl implements AuthService {
             user.setProfilePicUrl(request.getProfilePicUrl());
         }
         return mapToProfileResponse(userRepository.save(user));
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse uploadAndUpdateProfilePicture(UUID userId, org.springframework.web.multipart.MultipartFile file) {
+        log.info("=== UPLOAD PROFILE PICTURE START ===");
+        log.info("UserId: {}, FileName: {}, FileSize: {}, ContentType: {}",
+                userId, file.getOriginalFilename(), file.getSize(), file.getContentType());
+
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        log.info("User found: {}", user.getEmail());
+
+        try {
+            // Upload to Media Service via Feign client
+            log.info("Calling Media Service Feign client...");
+            var apiResponse = mediaServiceClient.uploadFile(
+                    file,
+                    userId,
+                    "PROFILE_PIC",
+                    userId.toString(),
+                    "USER"
+            );
+            log.info("Media Service response received: {}", apiResponse);
+
+            // Extract FileUploadResponse from ApiResponse wrapper
+            var fileUploadResponse = apiResponse.getData();
+            if (fileUploadResponse == null) {
+                log.error("FileUploadResponse is NULL from Media Service");
+                throw new RuntimeException("Failed to get upload response from media service");
+            }
+            log.info("FileUploadResponse extracted: uploadId={}, fileUrl={}",
+                    fileUploadResponse.getUploadId(), fileUploadResponse.getFileUrl());
+
+            // Extract S3 URL from response
+            String s3Url = fileUploadResponse.getFileUrl();
+            if (s3Url == null || s3Url.isEmpty()) {
+                log.error("S3 URL is NULL or empty from Media Service");
+                throw new RuntimeException("S3 URL not returned from media service");
+            }
+            log.info("S3 URL extracted: {}", s3Url);
+
+            // Update user with S3 URL
+            user.setProfilePicUrl(s3Url);
+            User savedUser = userRepository.save(user);
+            log.info("User saved with profilePicUrl: {}", savedUser.getProfilePicUrl());
+
+            UserProfileResponse response = mapToProfileResponse(savedUser);
+            log.info("=== UPLOAD PROFILE PICTURE SUCCESS ===");
+            return response;
+
+        } catch (Exception e) {
+            log.error("ERROR in uploadAndUpdateProfilePicture: {}", e.getMessage(), e);
+            throw new RuntimeException("File upload failed: " + e.getMessage(), e);
+        }
     }
 
     @Override

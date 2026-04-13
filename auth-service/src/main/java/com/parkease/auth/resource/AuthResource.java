@@ -108,6 +108,17 @@ public class AuthResource {
         return ResponseEntity.ok(authService.updateProfile(userId, request));
     }
 
+    @Operation(summary = "Upload user profile picture",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @PostMapping("/profile/picture")
+    public ResponseEntity<UserProfileResponse> uploadProfilePicture(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        UUID userId = UUID.fromString(jwtUtil.extractUserId(authHeader.substring(7)));
+        return ResponseEntity.status(HttpStatus.OK)
+                .body(authService.uploadAndUpdateProfilePicture(userId, file));
+    }
+
     @Operation(summary = "Change password",
             security = @SecurityRequirement(name = "bearerAuth"))
     @PutMapping("/password")
