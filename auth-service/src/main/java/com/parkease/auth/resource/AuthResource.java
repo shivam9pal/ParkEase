@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.parkease.auth.dto.AdminAuthResponse;
 import com.parkease.auth.dto.AdminCreateRequest;
@@ -278,5 +280,31 @@ public class AuthResource {
         }
         UUID requesterId = UUID.fromString(jwtUtil.extractUserId(token));
         return ResponseEntity.ok(authService.getAllAdmins(requesterId));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEDIA/S3 UPLOAD ENDPOINTS
+    // ═══════════════════════════════════════════════════════════════════════════
+    @Operation(
+            summary = "Upload user profile picture to S3",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @PostMapping("/upload-profile-picture")
+    public ResponseEntity<String> uploadProfilePicture(
+            @RequestPart("file") MultipartFile file,
+            @RequestHeader("Authorization") String authHeader) {
+        try {
+            // Extract userId from JWT token
+            String token = authHeader.substring(7);
+            UUID userId = UUID.fromString(jwtUtil.extractUserId(token));
+
+            // Call service to upload and get S3 URL
+            String s3Url = authService.uploadProfilePicture(userId, file);
+
+            return ResponseEntity.ok(s3Url);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Upload failed: " + e.getMessage());
+        }
     }
 }

@@ -32,6 +32,7 @@ import com.parkease.auth.entity.Admin;
 import com.parkease.auth.entity.OtpVerification;
 import com.parkease.auth.entity.User;
 import com.parkease.auth.enums.OtpPurpose;
+import com.parkease.auth.feign.MediaServiceClient;
 import com.parkease.auth.repository.AdminRepository;
 import com.parkease.auth.repository.OtpVerificationRepository;
 import com.parkease.auth.repository.UserRepository;
@@ -39,6 +40,7 @@ import com.parkease.auth.security.JwtUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -53,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
     private final AdminRepository adminRepository;
     private final EmailService emailService;
     private final OtpConfig otpConfig;
+    private final MediaServiceClient mediaServiceClient;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // EXISTING METHODS — only register() has OTP guard added at the top
@@ -654,6 +657,37 @@ public class AuthServiceImpl implements AuthService {
                 .isSuperAdmin(admin.isSuperAdmin())
                 .createdAt(admin.getCreatedAt())
                 .build();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEDIA/S3 UPLOAD METHODS
+    // ═══════════════════════════════════════════════════════════════════════════
+    @Override
+    @Transactional
+    public String uploadProfilePicture(UUID userId, MultipartFile file) {
+        log.info("Uploading profile picture for user: {}", userId);
+
+        // Verify user exists
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        try {
+            // Call media-service to upload to S3
+            var uploadResponse = mediaServiceClient.uploadFile(
+                    file,
+                    "auth", // folder
+                    userId.toString(), // reference
+                    userId.toString(), // uploadedBy
+                    "User profile picture" // description
+            );
+
+            log.info("Profile picture uploaded to S3: {}", uploadResponse.getS3Url());
+            return uploadResponse.getS3Url();
+
+        } catch (Exception e) {
+            log.error("Failed to upload profile picture for user {}: {}", userId, e.getMessage(), e);
+            throw new RuntimeException("Failed to upload profile picture: " + e.getMessage(), e);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

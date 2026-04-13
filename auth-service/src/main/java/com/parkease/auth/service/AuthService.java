@@ -18,6 +18,7 @@ import com.parkease.auth.dto.ResetPasswordRequest;
 import com.parkease.auth.dto.UpdateProfileRequest;
 import com.parkease.auth.dto.UserProfileResponse;
 import com.parkease.auth.entity.User;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface AuthService {
 
@@ -66,4 +67,14 @@ public interface AuthService {
     AdminProfileResponse reactivateAdmin(UUID targetAdminId, UUID requesterId);
 
     List<AdminProfileResponse> getAllAdmins(UUID requesterId);
+
+    // ── Media/S3 Upload methods ───────────────────────────────────────────────
+    /**
+     * Upload user profile picture to S3 via media-service
+     *
+     * @param userId The user uploading the picture
+     * @param file The image file to upload
+     * @return The S3 URL of the uploaded image
+     */
+    String uploadProfilePicture(UUID userId, MultipartFile file);
 }
