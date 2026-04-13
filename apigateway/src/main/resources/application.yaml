@@ -2,13 +2,14 @@ server:
   port: 8080
 
 
-
 spring:
   application:
     name: api-gateway
 
   cloud:
     gateway:
+      default-filters:
+        - PreserveHostHeader
       discovery:
         locator:
           enabled: true
@@ -17,7 +18,15 @@ spring:
         - id: auth-service
           uri: lb://auth-service
           predicates:
-            - Path=/api/v1/auth/**
+            - Path=/api/v1/auth/**, /oauth2/**, /login/oauth2/**
+          filters:
+            - StripPrefix=0
+        - id: auth-service-oauth
+          uri: lb://auth-service
+          predicates:
+            - Path=/oauth2/**, /login/oauth2/**
+          filters:
+            - StripPrefix=0
 
         - id: parkinglot-service
           uri: lb://parkinglot-service
@@ -90,3 +99,4 @@ management:
   endpoint:
     health:
       show-details: always
+debug: true

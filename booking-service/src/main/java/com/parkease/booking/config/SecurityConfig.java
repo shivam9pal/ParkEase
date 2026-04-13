@@ -13,8 +13,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-// ❌ REMOVED: CorsConfiguration, CorsConfigurationSource,
-//             UrlBasedCorsConfigurationSource, List
+
 
 /**
  * Spring Security configuration for booking-service.
@@ -116,5 +115,5 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // ❌ REMOVED: entire corsConfigurationSource() bean
+
 }

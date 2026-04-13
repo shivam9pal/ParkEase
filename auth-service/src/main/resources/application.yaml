@@ -1,7 +1,11 @@
 server:
   port: 8081
+  forward-headers-strategy: framework
 
 spring:
+  web:
+    resources:
+      add-mappings: false
   application:
     name: auth-service
 
@@ -57,6 +61,13 @@ resend:
   from-email: ${RESEND_FROM_EMAIL:reply@smartmeeter.online}
   from-name: ${RESEND_FROM_NAME:ParkEase}
 
+# OAuth2 Frontend Callback Configuration
+oauth2:
+  frontend:
+    callback-url: ${OAUTH2_FRONTEND_CALLBACK_URL:http://localhost:5174/oauth/callback}
+
+
+
 admin:
   seed-email: ${ADMIN_SEED_EMAIL:admin@parkease.com}
   seed-password: ${ADMIN_SEED_PASSWORD:Admin@ParkEase123}
@@ -78,3 +89,4 @@ eureka:
     instance-id: ${spring.application.name}:${server.port}
 
 debug: true
+
