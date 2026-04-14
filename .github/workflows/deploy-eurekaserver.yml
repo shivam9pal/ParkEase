@@ -1,0 +1,17 @@
+name: Deploy eurekaserver
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'eurekaserver/**'
+      - '.github/workflows/deploy-eurekaserver.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: eurekaserver
+      service_port: '8761'
+      service_dir: eurekaserver
+    secrets: inherit

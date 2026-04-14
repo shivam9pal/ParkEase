@@ -1,0 +1,17 @@
+name: Deploy booking-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'booking-service/**'
+      - '.github/workflows/deploy-booking-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: booking-service
+      service_port: '8084'
+      service_dir: booking-service
+    secrets: inherit

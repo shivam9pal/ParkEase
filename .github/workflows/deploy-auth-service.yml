@@ -1,0 +1,17 @@
+name: Deploy auth-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'auth-service/**'
+      - '.github/workflows/deploy-auth-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: auth-service
+      service_port: '8081'
+      service_dir: auth-service
+    secrets: inherit

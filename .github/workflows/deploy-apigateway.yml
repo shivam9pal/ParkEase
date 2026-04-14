@@ -1,0 +1,17 @@
+name: Deploy apigateway
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'apigateway/**'
+      - '.github/workflows/deploy-apigateway.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: apigateway
+      service_port: '8080'
+      service_dir: apigateway
+    secrets: inherit

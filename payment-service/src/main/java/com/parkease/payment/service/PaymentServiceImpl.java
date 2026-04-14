@@ -12,6 +12,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.razorpay.RazorpayClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,14 @@ import com.parkease.payment.rabbitmq.PaymentEventPublisher;
 import com.parkease.payment.rabbitmq.dto.BookingEventPayload;
 import com.parkease.payment.repository.PaymentRepository;
 
+import org.json.JSONObject;
+
+import com.razorpay.RazorpayException;
+import com.parkease.payment.dto.CreateRazorpayOrderRequest;
+import com.parkease.payment.dto.RazorpayOrderResponse;
+import com.parkease.payment.dto.VerifyRazorpayPaymentRequest;
+
+
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +56,14 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentEventPublisher paymentEventPublisher;
     private final BookingServiceClient bookingServiceClient;
     private final ReceiptGeneratorService receiptGeneratorService;
+
+    private final RazorpayClient razorpayClient;
+
+    @Value("${razorpay.key-id}")
+    private String razorpayKeyId;
+
+    @Value("${razorpay.key-secret}")
+    private String razorpayKeySecret;
 
     // ─── RabbitMQ: booking.checkout ───────────────────────────────────────────
     @Override
@@ -110,6 +128,12 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public PaymentResponse initiatePayment(UUID userId, InitiatePaymentRequest request) {
+
+        // ✅ NEW GUARD: Non-cash must go through Razorpay
+        if (request.getMode() != PaymentMode.CASH) {
+            throw new IllegalArgumentException(
+                    "For CARD/UPI/WALLET, use POST /api/v1/payments/razorpay/create-order instead.");
+        }
         BookingDetailDto booking = fetchBooking(request.getBookingId());
 
         if (!"COMPLETED".equals(booking.getStatus())) {
@@ -381,7 +405,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .lotId(p.getLotId())
                 .amount(p.getAmount())
                 .status(p.getStatus().name())
-                .mode(p.getMode().name())
+                .mode(p.getMode() != null ? p.getMode().name() : null)  // ✅ FIX: was p.getMode().name() — NPE for PENDING
                 .transactionId(p.getTransactionId())
                 .currency(p.getCurrency())
                 .paidAt(p.getPaidAt())
@@ -402,5 +426,129 @@ public class PaymentServiceImpl implements PaymentService {
                 .createdAt(p.getCreatedAt())
                 .updatedAt(updatedAt)
                 .build();
+    }
+
+
+    // ─── Razorpay: Step 1 — Create Order ──────────────────────────────────────
+    @Override
+    @Transactional
+    public RazorpayOrderResponse createRazorpayOrder(UUID userId, CreateRazorpayOrderRequest request) {
+        BookingDetailDto booking = fetchBooking(request.getBookingId());
+
+        if (!"COMPLETED".equals(booking.getStatus())) {
+            throw new IllegalArgumentException(
+                    "Only COMPLETED bookings can be paid. Current status: " + booking.getStatus());
+        }
+        if (!booking.getUserId().equals(userId)) {
+            throw new SecurityException("You do not own this booking.");
+        }
+
+        // Find existing PENDING payment or create one
+        Payment payment = paymentRepository.findByBookingId(request.getBookingId())
+                .orElseGet(() -> {
+                    Payment newPayment = Payment.builder()
+                            .bookingId(request.getBookingId())
+                            .userId(userId)
+                            .lotId(booking.getLotId())
+                            .amount(booking.getTotalAmount())
+                            .status(PaymentStatus.PENDING)
+                            .currency("INR")
+                            .description("Parking fee for booking " + request.getBookingId())
+                            .build();
+                    return paymentRepository.save(newPayment);
+                });
+
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            throw new ConflictException("Payment already completed for this booking.");
+        }
+
+        // Convert INR → paise (Razorpay requires smallest currency unit)
+        long amountInPaise = booking.getTotalAmount()
+                .multiply(BigDecimal.valueOf(100)).longValue();
+
+        try {
+            JSONObject orderRequest = new JSONObject();
+            orderRequest.put("amount", amountInPaise);
+            orderRequest.put("currency", "INR");
+            orderRequest.put("receipt", payment.getPaymentId().toString());
+            orderRequest.put("payment_capture", 1); // auto-capture
+
+            com.razorpay.Order order = razorpayClient.orders.create(orderRequest);
+            String razorpayOrderId = order.get("id");
+
+            payment.setRazorpayOrderId(razorpayOrderId);
+            paymentRepository.save(payment);
+
+            log.info("[Razorpay] Order created — paymentId={}, razorpayOrderId={}, amount={}",
+                    payment.getPaymentId(), razorpayOrderId, booking.getTotalAmount());
+
+            return RazorpayOrderResponse.builder()
+                    .razorpayOrderId(razorpayOrderId)
+                    .razorpayKeyId(razorpayKeyId)    // frontend needs this to open Checkout
+                    .amount(booking.getTotalAmount())
+                    .amountInPaise(amountInPaise)
+                    .currency("INR")
+                    .paymentId(payment.getPaymentId())
+                    .bookingId(request.getBookingId())
+                    .build();
+
+        } catch (RazorpayException e) {
+            log.error("[Razorpay] Order creation failed for bookingId={}: {}", request.getBookingId(), e.getMessage());
+            throw new ServiceUnavailableException("Payment gateway unavailable. Please try again.");
+        }
+    }
+
+    // ─── Razorpay: Step 2 — Verify Signature & Capture ────────────────────────
+
+    @Transactional
+    @Override
+    public PaymentResponse verifyAndCaptureRazorpayPayment(VerifyRazorpayPaymentRequest request) {
+        Payment payment = findPaymentById(request.getPaymentId());
+
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            throw new ConflictException("Payment already completed.");
+        }
+
+        // Verify HMAC-SHA256: signature = HMAC(razorpayOrderId + "|" + razorpayPaymentId, keySecret)
+        String expectedSignature = generateHmacSha256(
+                request.getRazorpayOrderId() + "|" + request.getRazorpayPaymentId(),
+                razorpayKeySecret
+        );
+
+        if (!expectedSignature.equals(request.getRazorpaySignature())) {
+            log.error("[Razorpay] Signature mismatch for paymentId={} — possible tampering", request.getPaymentId());
+            throw new SecurityException("Invalid payment signature. Payment rejected.");
+        }
+
+        // Signature valid — mark PAID
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setMode(request.getMode());
+        payment.setTransactionId(request.getRazorpayPaymentId());   // real gateway tx ID
+        payment.setRazorpayOrderId(request.getRazorpayOrderId());
+        payment.setRazorpayPaymentId(request.getRazorpayPaymentId());
+        payment.setPaidAt(LocalDateTime.now());
+
+        Payment saved = paymentRepository.save(payment);
+        paymentEventPublisher.publishPaymentCompleted(toResponse(saved));
+
+        log.info("[Razorpay] Payment verified & captured — paymentId={}, razorpayPaymentId={}",
+                saved.getPaymentId(), request.getRazorpayPaymentId());
+
+        return toResponse(saved);
+    }
+
+    // ─── HMAC-SHA256 Helper ────────────────────────────────────────────────────
+    private String generateHmacSha256(String data, String secret) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(
+                    secret.getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] hash = mac.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) hex.append(String.format("%02x", b));
+            return hex.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("HMAC generation failed", e);
+        }
     }
 }

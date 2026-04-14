@@ -1,0 +1,17 @@
+name: Deploy payment-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'payment-service/**'
+      - '.github/workflows/deploy-payment-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: payment-service
+      service_port: '8085'
+      service_dir: payment-service
+    secrets: inherit

@@ -39,11 +39,19 @@ public class Payment {
     private PaymentStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "mode", nullable = false, length = 20)
+    @Column(name = "mode", nullable = true, length = 20)  // ✅ FIX: was nullable = false, breaks PENDING payments
     private PaymentMode mode;
 
     @Column(name = "transaction_id", length = 100)
     private String transactionId;
+
+    // ✅ NEW: Razorpay Order ID (e.g. order_XXXXXXXXXXXXXXX)
+    @Column(name = "razorpay_order_id", length = 100)
+    private String razorpayOrderId;
+
+    // ✅ NEW: Razorpay Payment ID (e.g. pay_XXXXXXXXXXXXXXX) — set after user pays
+    @Column(name = "razorpay_payment_id", length = 100)
+    private String razorpayPaymentId;
 
     @Column(name = "currency", length = 10, nullable = false)
     private String currency;

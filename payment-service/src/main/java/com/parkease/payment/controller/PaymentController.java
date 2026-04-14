@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.parkease.payment.dto.*;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -22,12 +23,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.parkease.payment.dto.DailyRevenueResponse;
-import com.parkease.payment.dto.InitiatePaymentRequest;
-import com.parkease.payment.dto.PaymentResponse;
-import com.parkease.payment.dto.PaymentStatusResponse;
-import com.parkease.payment.dto.PaymentSummaryResponse;
-import com.parkease.payment.dto.RevenueResponse;
 import com.parkease.payment.service.PaymentService;
 
 import jakarta.validation.Valid;
@@ -208,5 +203,25 @@ public class PaymentController {
                 .findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", ""))
                 .orElse("DRIVER");
+    }
+
+    // ─── 6.12 Razorpay: Create Order (DRIVER) ─────────────────────────────────
+    @PostMapping("/razorpay/create-order")
+    public ResponseEntity<RazorpayOrderResponse> createRazorpayOrder(
+            @Valid @RequestBody CreateRazorpayOrderRequest request,
+            Authentication authentication) {
+
+        UUID userId = extractUserId(authentication);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(paymentService.createRazorpayOrder(userId, request));
+    }
+
+    // ─── 6.13 Razorpay: Verify & Capture (DRIVER) ─────────────────────────────
+    @PostMapping("/razorpay/verify")
+    public ResponseEntity<PaymentResponse> verifyRazorpayPayment(
+            @Valid @RequestBody VerifyRazorpayPaymentRequest request,
+            Authentication authentication) {
+
+        return ResponseEntity.ok(paymentService.verifyAndCaptureRazorpayPayment(request));
     }
 }

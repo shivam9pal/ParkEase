@@ -52,4 +52,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     BigDecimal sumPlatformRevenue(
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to);
+
+    Optional<Payment> findByRazorpayOrderId(String razorpayOrderId);
 }
