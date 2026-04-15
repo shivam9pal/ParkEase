@@ -159,9 +159,14 @@
 			<artifactId>spring-cloud-starter-config</artifactId>
 		</dependency>
 
+		<!-- Add this in the <dependencies> testing section -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>   <!-- only active during tests, not in production JAR -->
+		</dependency>
+
 	</dependencies>
-
-
 
 	<build>
 		<plugins>

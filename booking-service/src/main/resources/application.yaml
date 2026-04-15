@@ -6,13 +6,10 @@ spring:
   config:
     import: "optional:configserver:http://localhost:8888"
 
-
-#server:
-#  port: 8084
 #
-#spring:
-#  application:
-#    name: booking-service
+#
+#
+#
 #
 #  datasource:
 #    url: jdbc:postgresql://localhost:5432/parkease_booking
@@ -104,3 +101,6 @@ spring:
 #  instance:
 #    prefer-ip-address: true
 #    instance-id: ${spring.application.name}:${server.port}
+#
+#server:
+#  port: 8084
