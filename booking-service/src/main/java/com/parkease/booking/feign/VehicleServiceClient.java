@@ -20,7 +20,6 @@ import java.util.UUID;
  */
 @FeignClient(
         name = "vehicle-service",
-        url = "${services.vehicle.url}",
         configuration = FeignConfig.class
 )
 public interface VehicleServiceClient {

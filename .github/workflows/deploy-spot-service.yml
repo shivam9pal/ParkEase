@@ -1,0 +1,17 @@
+name: Deploy spot-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'spot-service/**'
+      - '.github/workflows/deploy-spot-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: spot-service
+      service_port: '8084'
+      service_dir: spot-service
+    secrets: inherit

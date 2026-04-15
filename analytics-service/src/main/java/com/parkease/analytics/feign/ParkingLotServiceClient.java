@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @FeignClient(
         name = "parkinglot-service",
-        url = "${services.parkinglot.url}",
+//        url = "${services.parkinglot.url}",
         configuration = FeignConfig.class
 )
 public interface ParkingLotServiceClient {

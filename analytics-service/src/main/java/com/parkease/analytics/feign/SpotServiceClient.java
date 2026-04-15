@@ -9,7 +9,7 @@ import java.util.UUID;
 
 @FeignClient(
         name = "spot-service",
-        url = "${services.spot.url}",
+//        url = "${services.spot.url}",
         configuration = FeignConfig.class
 )
 public interface SpotServiceClient {

@@ -1,5 +1,15 @@
 package com.parkease.notification.service;
 
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
 import com.parkease.notification.dto.BroadcastNotificationRequest;
 import com.parkease.notification.dto.NotificationResponse;
 import com.parkease.notification.dto.UnreadCountResponse;
@@ -14,18 +24,10 @@ import com.parkease.notification.rabbitmq.dto.BookingEventPayload;
 import com.parkease.notification.rabbitmq.dto.PaymentEventPayload;
 import com.parkease.notification.repository.NotificationRepository;
 import com.parkease.notification.util.NotificationMessageBuilder;
+
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,25 +43,31 @@ public class NotificationServiceImpl implements NotificationService {
     // ══════════════════════════════════════════════════════════════
     // EVENT HANDLERS
     // ══════════════════════════════════════════════════════════════
-
     @Override
     @Transactional
     public void handleBookingEvent(BookingEventPayload payload, String routingKey) {
         NotificationType type = switch (routingKey) {
-            case "booking.created"   -> NotificationType.BOOKING_CREATED;
-            case "booking.checkin"   -> NotificationType.CHECKIN;
-            case "booking.checkout"  -> NotificationType.CHECKOUT;
-            case "booking.cancelled" -> NotificationType.BOOKING_CANCELLED;
-            case "booking.extended"  -> NotificationType.BOOKING_EXTENDED;
+            case "booking.created" ->
+                NotificationType.BOOKING_CREATED;
+            case "booking.checkin" ->
+                NotificationType.CHECKIN;
+            case "booking.checkout" ->
+                NotificationType.CHECKOUT;
+            case "booking.cancelled" ->
+                NotificationType.BOOKING_CANCELLED;
+            case "booking.extended" ->
+                NotificationType.BOOKING_EXTENDED;
             default -> {
                 log.warn("Unknown booking routing key — skipping: {}", routingKey);
                 yield null;
             }
         };
 
-        if (type == null) return;
+        if (type == null) {
+            return;
+        }
 
-        String title   = messageBuilder.buildBookingTitle(type);
+        String title = messageBuilder.buildBookingTitle(type);
         String message = messageBuilder.buildBookingMessage(type, payload);
 
         UserDetailDto user = safeGetUser(payload.getUserId());
@@ -72,17 +80,21 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public void handlePaymentEvent(PaymentEventPayload payload, String routingKey) {
         NotificationType type = switch (routingKey) {
-            case "payment.completed" -> NotificationType.PAYMENT_COMPLETED;
-            case "payment.refunded"  -> NotificationType.PAYMENT_REFUNDED;
+            case "payment.completed" ->
+                NotificationType.PAYMENT_COMPLETED;
+            case "payment.refunded" ->
+                NotificationType.PAYMENT_REFUNDED;
             default -> {
                 log.warn("Unknown payment routing key — skipping: {}", routingKey);
                 yield null;
             }
         };
 
-        if (type == null) return;
+        if (type == null) {
+            return;
+        }
 
-        String title   = messageBuilder.buildPaymentTitle(type);
+        String title = messageBuilder.buildPaymentTitle(type);
         String message = messageBuilder.buildPaymentMessage(type, payload);
 
         UserDetailDto user = safeGetUser(payload.getUserId());
@@ -94,10 +106,9 @@ public class NotificationServiceImpl implements NotificationService {
     // ══════════════════════════════════════════════════════════════
     // CORE DISPATCH LOGIC
     // ══════════════════════════════════════════════════════════════
-
     private void dispatchAll(NotificationType type, UUID recipientId, UUID relatedId,
-                             String relatedType, String title, String message,
-                             UserDetailDto user) {
+            String relatedType, String title, String message,
+            UserDetailDto user) {
 
         // 1. Always save APP record first — in-app notification bell
         saveNotification(recipientId, type, title, message,
@@ -119,9 +130,9 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     private void saveNotification(UUID recipientId, NotificationType type,
-                                  String title, String message,
-                                  NotificationChannel channel,
-                                  UUID relatedId, String relatedType) {
+            String title, String message,
+            NotificationChannel channel,
+            UUID relatedId, String relatedType) {
         Notification notification = Notification.builder()
                 .recipientId(recipientId)
                 .type(type)
@@ -161,7 +172,6 @@ public class NotificationServiceImpl implements NotificationService {
     // ══════════════════════════════════════════════════════════════
     // FAULT-TOLERANT AUTH FEIGN CALLS
     // ══════════════════════════════════════════════════════════════
-
     private UserDetailDto safeGetUser(UUID userId) {
         try {
             return authServiceClient.getUserById(userId);
@@ -181,7 +191,7 @@ public class NotificationServiceImpl implements NotificationService {
         try {
             if ("ALL".equalsIgnoreCase(role)) {
                 // Fetch DRIVER and MANAGER separately, combine
-                List<UserDetailDto> drivers  = authServiceClient.getUsersByRole("DRIVER");
+                List<UserDetailDto> drivers = authServiceClient.getUsersByRole("DRIVER");
                 List<UserDetailDto> managers = authServiceClient.getUsersByRole("MANAGER");
                 drivers.addAll(managers);
                 return drivers;
@@ -199,7 +209,6 @@ public class NotificationServiceImpl implements NotificationService {
     // ══════════════════════════════════════════════════════════════
     // DRIVER / MANAGER REST API METHODS
     // ══════════════════════════════════════════════════════════════
-
     @Override
     public List<NotificationResponse> getMyNotifications(UUID recipientId) {
         return notificationRepository
@@ -231,7 +240,7 @@ public class NotificationServiceImpl implements NotificationService {
         Notification notification = notificationRepository
                 .findByNotificationId(notificationId)
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
+                HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
 
         if (!notification.getRecipientId().equals(requesterId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
@@ -251,27 +260,25 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public void deleteNotification(UUID notificationId, UUID requesterId) {
+    public void deleteNotification(UUID notificationId, UUID requesterId, String requesterRole) {
         Notification notification = notificationRepository
                 .findByNotificationId(notificationId)
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
+                HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
 
-        // DRIVER can only delete own; ADMIN can delete any (enforced in controller via JWT role)
-        // Here we apply the ownership check only — admin bypass is handled in SecurityConfig
-        if (!notification.getRecipientId().equals(requesterId)) {
+        // DRIVER can only delete own; ADMIN can delete any
+        if ("DRIVER".equals(requesterRole) && !notification.getRecipientId().equals(requesterId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "You can only delete your own notifications.");
         }
 
         notificationRepository.deleteByNotificationId(notificationId);
-        log.info("Deleted notification: notificationId={}, requestedBy={}", notificationId, requesterId);
+        log.info("Deleted notification: notificationId={}, requestedBy={}, role={}", notificationId, requesterId, requesterRole);
     }
 
     // ══════════════════════════════════════════════════════════════
     // ADMIN REST API METHODS
     // ══════════════════════════════════════════════════════════════
-
     @Override
     public List<NotificationResponse> getAllNotifications() {
         return notificationRepository.findAllByOrderBySentAtDesc()
@@ -309,7 +316,6 @@ public class NotificationServiceImpl implements NotificationService {
     // ══════════════════════════════════════════════════════════════
     // MAPPER
     // ══════════════════════════════════════════════════════════════
-
     private NotificationResponse toResponse(Notification n) {
         return NotificationResponse.builder()
                 .notificationId(n.getNotificationId())

@@ -1,0 +1,17 @@
+name: Deploy media-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'media-service/**'
+      - '.github/workflows/deploy-media-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: media-service
+      service_port: '8090'
+      service_dir: media-service
+    secrets: inherit

@@ -1,19 +1,21 @@
 package com.parkease.vehicle.service;
 
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.parkease.vehicle.dto.RegisterVehicleRequest;
 import com.parkease.vehicle.dto.UpdateVehicleRequest;
 import com.parkease.vehicle.dto.VehicleResponse;
 import com.parkease.vehicle.entity.Vehicle;
 import com.parkease.vehicle.entity.VehicleType;
 import com.parkease.vehicle.repository.VehicleRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -25,19 +27,19 @@ public class VehicleServiceImpl implements VehicleService {
     // ─────────────────────────────────────────────────────────────────────────
     // REGISTER
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public VehicleResponse registerVehicle(UUID ownerId, RegisterVehicleRequest request) {
         log.info("Registering vehicle for ownerId={}, plate={}", ownerId, request.getLicensePlate());
 
-        // ── Business Rule: license plate is unique PER owner ──
+        // ── Business Rule: license plate is unique PER owner (ACTIVE vehicles only) ──
         // Same plate CAN belong to two different drivers (different cars).
-        vehicleRepository.findByOwnerIdAndLicensePlate(ownerId, request.getLicensePlate())
+        // Soft-deleted vehicles are ignored — allows re-registration of same plate.
+        vehicleRepository.findByOwnerIdAndLicensePlateAndIsActiveTrue(ownerId, request.getLicensePlate())
                 .ifPresent(existing -> {
                     throw new RuntimeException(
-                            "License plate '" + request.getLicensePlate() +
-                                    "' is already registered to your account"
+                            "License plate '" + request.getLicensePlate()
+                            + "' is already registered to your account"
                     );
                 });
 
@@ -62,14 +64,21 @@ public class VehicleServiceImpl implements VehicleService {
     // ─────────────────────────────────────────────────────────────────────────
     // READ
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public VehicleResponse getVehicleById(UUID vehicleId) {
-        log.debug("Fetching vehicle by id={}", vehicleId);
+        long startTime = System.currentTimeMillis();
+        log.debug("[VehicleService] Fetching vehicle by id={}", vehicleId);
 
         Vehicle vehicle = vehicleRepository.findByVehicleId(vehicleId)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + vehicleId));
+
+        long queryDuration = System.currentTimeMillis() - startTime;
+        log.info("[VehicleService] Vehicle fetched in {}ms - vehicleId={}", queryDuration, vehicleId);
+
+        if (queryDuration > 5000) {
+            log.warn("[VehicleService] SLOW QUERY DETECTED: Vehicle lookup took {}ms - vehicleId={}", queryDuration, vehicleId);
+        }
 
         return toResponse(vehicle);
     }
@@ -77,9 +86,9 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     @Transactional(readOnly = true)
     public List<VehicleResponse> getVehiclesByOwner(UUID ownerId) {
-        log.debug("Fetching all vehicles for ownerId={}", ownerId);
+        log.debug("Fetching all ACTIVE vehicles for ownerId={}", ownerId);
 
-        return vehicleRepository.findByOwnerId(ownerId)
+        return vehicleRepository.findByOwnerIdAndIsActiveTrue(ownerId)
                 .stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
@@ -92,8 +101,8 @@ public class VehicleServiceImpl implements VehicleService {
 
         Vehicle vehicle = vehicleRepository.findByLicensePlate(licensePlate.toUpperCase().trim())
                 .orElseThrow(() -> new RuntimeException(
-                        "Vehicle not found with license plate: " + licensePlate
-                ));
+                "Vehicle not found with license plate: " + licensePlate
+        ));
 
         return toResponse(vehicle);
     }
@@ -112,7 +121,6 @@ public class VehicleServiceImpl implements VehicleService {
     // ─────────────────────────────────────────────────────────────────────────
     // UPDATE
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public VehicleResponse updateVehicle(UUID vehicleId, UpdateVehicleRequest request) {
@@ -147,7 +155,6 @@ public class VehicleServiceImpl implements VehicleService {
     // ─────────────────────────────────────────────────────────────────────────
     // SOFT DELETE
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public void deleteVehicle(UUID vehicleId) {
@@ -166,7 +173,6 @@ public class VehicleServiceImpl implements VehicleService {
     // ─────────────────────────────────────────────────────────────────────────
     // TYPE & EV QUERIES (used by booking-service via RestTemplate)
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public VehicleType getVehicleType(UUID vehicleId) {
@@ -192,10 +198,9 @@ public class VehicleServiceImpl implements VehicleService {
     // ─────────────────────────────────────────────────────────────────────────
     // PRIVATE MAPPER — Entity → DTO
     // ─────────────────────────────────────────────────────────────────────────
-
     /**
-     * Maps Vehicle entity to VehicleResponse DTO.
-     * Entity is NEVER returned directly from any endpoint.
+     * Maps Vehicle entity to VehicleResponse DTO. Entity is NEVER returned
+     * directly from any endpoint.
      */
     private VehicleResponse toResponse(Vehicle vehicle) {
         return VehicleResponse.builder()

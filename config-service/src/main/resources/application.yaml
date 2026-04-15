@@ -1,0 +1,18 @@
+
+spring:
+
+  application:
+    name: config-service
+
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/shivam9pal/ParkingLotConfig.git
+          username: shivam9pal
+          password: ${YOUR_GITHUB_TOKEN}
+          clone-on-start: true
+server:
+  port: 8888
+
+

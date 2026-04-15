@@ -1,11 +1,12 @@
 package com.parkease.payment.service;
 
-import com.parkease.payment.dto.*;
-import com.parkease.payment.rabbitmq.dto.BookingEventPayload;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import com.parkease.payment.dto.*;
+import com.parkease.payment.rabbitmq.dto.BookingEventPayload;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface PaymentService {
 
@@ -21,6 +22,8 @@ public interface PaymentService {
 
     List<PaymentResponse> getPaymentsByUser(UUID userId);
 
+    List<PaymentResponse> getPaymentsByLot(UUID lotId);
+
     PaymentResponse getPaymentByTransactionId(String transactionId);
 
     PaymentStatusResponse getPaymentStatus(UUID paymentId, UUID requesterId, String requesterRole);
@@ -33,5 +36,11 @@ public interface PaymentService {
 
     RevenueResponse getPlatformRevenue(LocalDateTime from, LocalDateTime to);
 
+    List<PaymentSummaryResponse> getAllPayments();
+
     byte[] generateAndGetReceipt(UUID paymentId, UUID requesterId, String requesterRole);
+
+    RazorpayOrderResponse createRazorpayOrder(UUID userId, CreateRazorpayOrderRequest request);
+
+    PaymentResponse verifyAndCaptureRazorpayPayment(VerifyRazorpayPaymentRequest request);
 }

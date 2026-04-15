@@ -1,5 +1,13 @@
 package com.parkease.spot.service;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.parkease.spot.dto.AddSpotRequest;
 import com.parkease.spot.dto.BulkAddSpotRequest;
 import com.parkease.spot.dto.SpotResponse;
@@ -9,15 +17,9 @@ import com.parkease.spot.entity.SpotStatus;
 import com.parkease.spot.entity.SpotType;
 import com.parkease.spot.entity.VehicleType;
 import com.parkease.spot.repository.SpotRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -29,7 +31,6 @@ public class SpotServiceImpl implements SpotService {
     // ══════════════════════════════════════════════════════════════════════════
     //  CREATION
     // ══════════════════════════════════════════════════════════════════════════
-
     @Override
     @Transactional
     public SpotResponse addSpot(UUID lotId, AddSpotRequest request) {
@@ -110,7 +111,6 @@ public class SpotServiceImpl implements SpotService {
     // ══════════════════════════════════════════════════════════════════════════
     //  READ
     // ══════════════════════════════════════════════════════════════════════════
-
     @Override
     @Transactional(readOnly = true)
     public SpotResponse getSpotById(UUID spotId) {
@@ -175,10 +175,8 @@ public class SpotServiceImpl implements SpotService {
     // ══════════════════════════════════════════════════════════════════════════
     //  STATUS TRANSITIONS — STRICTLY ENFORCED
     // ══════════════════════════════════════════════════════════════════════════
-
     /**
-     * AVAILABLE → RESERVED
-     * Any other current state → 409 CONFLICT
+     * AVAILABLE → RESERVED Any other current state → 409 CONFLICT
      */
     @Override
     @Transactional
@@ -190,21 +188,22 @@ public class SpotServiceImpl implements SpotService {
                 spot.setStatus(SpotStatus.RESERVED);
                 log.info("Spot [{}] AVAILABLE → RESERVED", spotId);
             }
-            case RESERVED -> throw new IllegalStateException(
-                    "Spot " + spotId + " is already RESERVED — cannot reserve again"
-            );
-            case OCCUPIED -> throw new IllegalStateException(
-                    "Spot " + spotId + " is OCCUPIED — cannot reserve an occupied spot"
-            );
+            case RESERVED ->
+                throw new IllegalStateException(
+                        "Spot " + spotId + " is already RESERVED — cannot reserve again"
+                );
+            case OCCUPIED ->
+                throw new IllegalStateException(
+                        "Spot " + spotId + " is OCCUPIED — cannot reserve an occupied spot"
+                );
         }
 
         return toResponse(spotRepository.save(spot));
     }
 
     /**
-     * RESERVED  → OCCUPIED  (normal check-in)
-     * AVAILABLE → OCCUPIED  (walk-in direct check-in)
-     * Any other state → 409 CONFLICT
+     * RESERVED → OCCUPIED (normal check-in) AVAILABLE → OCCUPIED (walk-in
+     * direct check-in) Any other state → 409 CONFLICT
      */
     @Override
     @Transactional
@@ -216,18 +215,18 @@ public class SpotServiceImpl implements SpotService {
                 log.info("Spot [{}] {} → OCCUPIED", spotId, spot.getStatus());
                 spot.setStatus(SpotStatus.OCCUPIED);
             }
-            case OCCUPIED -> throw new IllegalStateException(
-                    "Spot " + spotId + " is already OCCUPIED"
-            );
+            case OCCUPIED ->
+                throw new IllegalStateException(
+                        "Spot " + spotId + " is already OCCUPIED"
+                );
         }
 
         return toResponse(spotRepository.save(spot));
     }
 
     /**
-     * RESERVED → AVAILABLE  (booking cancelled)
-     * OCCUPIED → AVAILABLE  (checkout)
-     * AVAILABLE stays → 409 CONFLICT (already free)
+     * RESERVED, OCCUPIED → AVAILABLE (booking cancelled) OCCUPIED → AVAILABLE
+     * (checkout) AVAILABLE stays → 409 CONFLICT (already free)
      */
     @Override
     @Transactional
@@ -239,9 +238,40 @@ public class SpotServiceImpl implements SpotService {
                 log.info("Spot [{}] {} → AVAILABLE", spotId, spot.getStatus());
                 spot.setStatus(SpotStatus.AVAILABLE);
             }
-            case AVAILABLE -> throw new IllegalStateException(
-                    "Spot " + spotId + " is already AVAILABLE — nothing to release"
-            );
+            case AVAILABLE ->
+                throw new IllegalStateException(
+                        "Spot " + spotId + " is already AVAILABLE — nothing to release"
+                );
+        }
+
+        return toResponse(spotRepository.save(spot));
+    }
+
+    /**
+     * AVAILABLE ↔ MAINTENANCE (toggle) Any other state → 409 CONFLICT
+     */
+    @Override
+    @Transactional
+    public SpotResponse toggleMaintenance(UUID spotId) {
+        ParkingSpot spot = findSpotOrThrow(spotId);
+
+        switch (spot.getStatus()) {
+            case AVAILABLE -> {
+                spot.setStatus(SpotStatus.MAINTENANCE);
+                log.info("Spot [{}] AVAILABLE → MAINTENANCE", spotId);
+            }
+            case MAINTENANCE -> {
+                spot.setStatus(SpotStatus.AVAILABLE);
+                log.info("Spot [{}] MAINTENANCE → AVAILABLE", spotId);
+            }
+            case RESERVED ->
+                throw new IllegalStateException(
+                        "Spot " + spotId + " is RESERVED — cannot put reserved spot under maintenance"
+                );
+            case OCCUPIED ->
+                throw new IllegalStateException(
+                        "Spot " + spotId + " is OCCUPIED — cannot put occupied spot under maintenance"
+                );
         }
 
         return toResponse(spotRepository.save(spot));
@@ -250,10 +280,9 @@ public class SpotServiceImpl implements SpotService {
     // ══════════════════════════════════════════════════════════════════════════
     //  UPDATE / DELETE
     // ══════════════════════════════════════════════════════════════════════════
-
     /**
-     * Partial update — only non-null fields are applied.
-     * spotNumber and lotId are immutable — never modified here.
+     * Partial update — only non-null fields are applied. spotNumber and lotId
+     * are immutable — never modified here.
      */
     @Override
     @Transactional
@@ -303,21 +332,20 @@ public class SpotServiceImpl implements SpotService {
     // ══════════════════════════════════════════════════════════════════════════
     //  PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
-
     /**
      * Central fetch helper — throws a named RuntimeException that
      * GlobalExceptionHandler maps to 404 NOT FOUND.
      */
     private ParkingSpot findSpotOrThrow(UUID spotId) {
         return spotRepository.findBySpotId(spotId)
-                .orElseThrow(() ->
-                        new RuntimeException("Spot not found with id: " + spotId)
+                .orElseThrow(()
+                        -> new RuntimeException("Spot not found with id: " + spotId)
                 );
     }
 
     /**
-     * Maps ParkingSpot entity → SpotResponse DTO.
-     * Entity is never exposed directly to the API layer.
+     * Maps ParkingSpot entity → SpotResponse DTO. Entity is never exposed
+     * directly to the API layer.
      */
     private SpotResponse toResponse(ParkingSpot spot) {
         return SpotResponse.builder()

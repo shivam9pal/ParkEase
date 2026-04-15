@@ -1,0 +1,17 @@
+name: Deploy vehicle-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'vehicle-service/**'
+      - '.github/workflows/deploy-vehicle-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: vehicle-service
+      service_port: '8086'
+      service_dir: vehicle-service
+    secrets: inherit

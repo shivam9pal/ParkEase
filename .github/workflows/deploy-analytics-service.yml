@@ -1,0 +1,17 @@
+name: Deploy analytics-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'analytics-service/**'
+      - '.github/workflows/deploy-analytics-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: analytics-service
+      service_port: '8088'
+      service_dir: analytics-service
+    secrets: inherit

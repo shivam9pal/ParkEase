@@ -1,6 +1,22 @@
 package com.parkease.booking.service;
 
-import com.parkease.booking.dto.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.parkease.booking.dto.BookingResponse;
+import com.parkease.booking.dto.BookingStatsResponse;
+import com.parkease.booking.dto.CreateBookingRequest;
+import com.parkease.booking.dto.ExtendBookingRequest;
+import com.parkease.booking.dto.FareCalculationResponse;
 import com.parkease.booking.entity.Booking;
 import com.parkease.booking.entity.BookingStatus;
 import com.parkease.booking.entity.BookingType;
@@ -12,20 +28,10 @@ import com.parkease.booking.feign.dto.SpotResponse;
 import com.parkease.booking.feign.dto.VehicleResponse;
 import com.parkease.booking.messaging.BookingEventPublisher;
 import com.parkease.booking.repository.BookingRepository;
+
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -44,16 +50,14 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 1. CREATE BOOKING
     // ─────────────────────────────────────────────────────────────────────────
-
     /**
-     * Full orchestration flow:
-     *   Vehicle validation → Spot validation → Reserve/Occupy spot
-     *   → Decrement lot counter → Save DB → Publish event
+     * Full orchestration flow: Vehicle validation → Spot validation →
+     * Reserve/Occupy spot → Decrement lot counter → Save DB → Publish event
      *
-     * ROLLBACK RULES (Feign calls are NOT rolled back by @Transactional):
-     *   Step 5 fails (reserve/occupy)     → nothing to undo
-     *   Step 6 fails (decrement lot)      → releaseSpot()
-     *   Step 7 fails (DB save)            → releaseSpot() + incrementAvailableSpots()
+     * ROLLBACK RULES (Feign calls are NOT rolled back by @Transactional): Step
+     * 5 fails (reserve/occupy) → nothing to undo Step 6 fails (decrement lot) →
+     * releaseSpot() Step 7 fails (DB save) → releaseSpot() +
+     * incrementAvailableSpots()
      */
     @Override
     @Transactional
@@ -70,10 +74,23 @@ public class BookingServiceImpl implements BookingService {
         // ── Step 2: Fetch and validate vehicle ────────────────────────────────
         VehicleResponse vehicle;
         try {
+            log.debug("[BookingService] Fetching vehicle from vehicle-service: vehicleId={}", request.getVehicleId());
             vehicle = vehicleServiceClient.getVehicleById(request.getVehicleId());
         } catch (FeignException.NotFound e) {
+            log.warn("[BookingService] Vehicle not found: vehicleId={}, status={}", request.getVehicleId(), e.status());
             throw new RuntimeException("Vehicle not found with id: " + request.getVehicleId());
+        } catch (FeignException.ServiceUnavailable e) {
+            log.error("[BookingService] Vehicle service returned 503: {}", e.getMessage());
+            throw new RuntimeException("Vehicle service unavailable. Please try again later.");
+        } catch (FeignException.Unauthorized e) {
+            log.error("[BookingService] Unauthorized access to vehicle-service: {}", e.getMessage());
+            throw new RuntimeException("Authorization failed when accessing vehicle service.");
+        } catch (FeignException.BadRequest e) {
+            log.error("[BookingService] Bad request to vehicle-service: {}", e.getMessage());
+            throw new RuntimeException("Invalid vehicle request: " + e.contentUTF8());
         } catch (FeignException e) {
+            log.error("[BookingService] FeignException from vehicle-service - Status: {}, Message: {}, Body: {}",
+                    e.status(), e.getMessage(), e.contentUTF8(), e);
             throw new RuntimeException("Vehicle service unavailable. Please try again later.");
         }
 
@@ -90,10 +107,17 @@ public class BookingServiceImpl implements BookingService {
         // ── Step 3: Fetch and validate spot ───────────────────────────────────
         SpotResponse spot;
         try {
+            log.debug("[BookingService] Fetching spot from spot-service: spotId={}", request.getSpotId());
             spot = spotServiceClient.getSpotById(request.getSpotId());
         } catch (FeignException.NotFound e) {
+            log.warn("[BookingService] Spot not found: spotId={}, status={}", request.getSpotId(), e.status());
             throw new RuntimeException("Spot not found with id: " + request.getSpotId());
+        } catch (FeignException.ServiceUnavailable e) {
+            log.error("[BookingService] Spot service returned 503: {}", e.getMessage());
+            throw new RuntimeException("Spot service unavailable. Please try again later.");
         } catch (FeignException e) {
+            log.error("[BookingService] FeignException from spot-service - Status: {}, Message: {}",
+                    e.status(), e.getMessage(), e);
             throw new RuntimeException("Spot service unavailable. Please try again later.");
         }
 
@@ -106,8 +130,8 @@ public class BookingServiceImpl implements BookingService {
         // Vehicle type must match spot's vehicle type
         if (!spot.getVehicleType().equalsIgnoreCase(vehicle.getVehicleType())) {
             throw new IllegalArgumentException(
-                    "Vehicle type " + vehicle.getVehicleType() +
-                            " is not compatible with spot type " + spot.getVehicleType() + ".");
+                    "Vehicle type " + vehicle.getVehicleType()
+                    + " is not compatible with spot type " + spot.getVehicleType() + ".");
         }
 
         // EV check — if vehicle is EV, spot must support EV charging
@@ -170,7 +194,7 @@ public class BookingServiceImpl implements BookingService {
                 .checkInTime(isWalkIn ? now : null)
                 .checkOutTime(null)
                 .status(isWalkIn ? BookingStatus.ACTIVE : BookingStatus.RESERVED)
-                .totalAmount(null)      // null until checkOut — never 0
+                .totalAmount(null) // null until checkOut — never 0
                 .pricePerHour(pricePerHour)
                 .build();
 
@@ -197,7 +221,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 2. CHECK-IN  (RESERVED → ACTIVE)
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public BookingResponse checkIn(UUID bookingId, UUID userId) {
@@ -211,8 +234,8 @@ public class BookingServiceImpl implements BookingService {
         // Step 3: Must be RESERVED to check in
         if (booking.getStatus() != BookingStatus.RESERVED) {
             throw new IllegalStateException(
-                    "Cannot check in. Booking status is " + booking.getStatus() +
-                            ". Only RESERVED bookings can be checked in.");
+                    "Cannot check in. Booking status is " + booking.getStatus()
+                    + ". Only RESERVED bookings can be checked in.");
         }
 
         // Step 4: Must be a PRE_BOOKING — WALK_IN is already checked in at creation
@@ -246,7 +269,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 3. CHECK-OUT  (ACTIVE → COMPLETED)
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public BookingResponse checkOut(UUID bookingId, UUID userId) {
@@ -263,8 +285,8 @@ public class BookingServiceImpl implements BookingService {
         // Step 3: Must be ACTIVE to check out
         if (booking.getStatus() != BookingStatus.ACTIVE) {
             throw new IllegalStateException(
-                    "Cannot check out. Booking status is " + booking.getStatus() +
-                            ". Only ACTIVE bookings can be checked out.");
+                    "Cannot check out. Booking status is " + booking.getStatus()
+                    + ". Only ACTIVE bookings can be checked out.");
         }
 
         // Step 4: Set checkout time
@@ -313,7 +335,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 4. CANCEL BOOKING
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public BookingResponse cancelBooking(UUID bookingId, UUID userId, String requesterRole) {
@@ -373,7 +394,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 5. EXTEND BOOKING
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public BookingResponse extendBooking(UUID bookingId, UUID userId, ExtendBookingRequest request) {
@@ -387,8 +407,8 @@ public class BookingServiceImpl implements BookingService {
         // Step 3: Can only extend RESERVED or ACTIVE bookings
         if (booking.getStatus() != BookingStatus.RESERVED && booking.getStatus() != BookingStatus.ACTIVE) {
             throw new IllegalStateException(
-                    "Cannot extend booking with status " + booking.getStatus() +
-                            ". Only RESERVED or ACTIVE bookings can be extended.");
+                    "Cannot extend booking with status " + booking.getStatus()
+                    + ". Only RESERVED or ACTIVE bookings can be extended.");
         }
 
         // Step 4: newEndTime must be strictly after current endTime
@@ -419,7 +439,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 6. GET BOOKING BY ID
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public BookingResponse getBookingById(UUID bookingId) {
@@ -429,7 +448,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 7. GET BOOKINGS BY USER
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public List<BookingResponse> getBookingsByUser(UUID userId) {
@@ -442,7 +460,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 8. GET BOOKINGS BY LOT
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public List<BookingResponse> getBookingsByLot(UUID lotId) {
@@ -455,7 +472,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 9. GET ACTIVE BOOKINGS FOR LOT
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public List<BookingResponse> getActiveBookings(UUID lotId) {
@@ -468,7 +484,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 10. GET BOOKING HISTORY (COMPLETED + CANCELLED) FOR USER
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public List<BookingResponse> getBookingHistory(UUID userId) {
@@ -476,7 +491,7 @@ public class BookingServiceImpl implements BookingService {
         return bookingRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
                 .filter(b -> b.getStatus() == BookingStatus.COMPLETED
-                        || b.getStatus() == BookingStatus.CANCELLED)
+                || b.getStatus() == BookingStatus.CANCELLED)
                 .map(this::toResponse)
                 .collect(Collectors.toList());
     }
@@ -484,7 +499,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 11. GET ALL BOOKINGS (ADMIN ONLY)
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public List<BookingResponse> getAllBookings() {
@@ -497,7 +511,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 12. CALCULATE FARE ESTIMATE (READ-ONLY)
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional(readOnly = true)
     public FareCalculationResponse calculateAmount(UUID bookingId) {
@@ -508,8 +521,8 @@ public class BookingServiceImpl implements BookingService {
         // Step 2: Must be ACTIVE — needs a checkInTime to calculate from
         if (booking.getStatus() != BookingStatus.ACTIVE) {
             throw new IllegalStateException(
-                    "Fare estimate is only available for ACTIVE bookings. " +
-                            "Current status: " + booking.getStatus());
+                    "Fare estimate is only available for ACTIVE bookings. "
+                    + "Current status: " + booking.getStatus());
         }
 
         // Step 3 & 4: Estimate based on current time
@@ -538,7 +551,6 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // 13. AUTO-EXPIRE BOOKINGS (CALLED BY SCHEDULER — NO JWT CONTEXT)
     // ─────────────────────────────────────────────────────────────────────────
-
     @Override
     @Transactional
     public void autoExpireBookings() {
@@ -592,11 +604,10 @@ public class BookingServiceImpl implements BookingService {
     // ─────────────────────────────────────────────────────────────────────────
     // PRIVATE HELPERS
     // ─────────────────────────────────────────────────────────────────────────
-
     /**
-     * Central mapper — Booking entity → BookingResponse DTO.
-     * Called by every service method before returning.
-     * vehicleType stored as enum, returned as String for API consumers.
+     * Central mapper — Booking entity → BookingResponse DTO. Called by every
+     * service method before returning. vehicleType stored as enum, returned as
+     * String for API consumers.
      */
     private BookingResponse toResponse(Booking booking) {
         return BookingResponse.builder()
@@ -612,21 +623,21 @@ public class BookingServiceImpl implements BookingService {
                 .status(booking.getStatus())
                 .startTime(booking.getStartTime())
                 .endTime(booking.getEndTime())
-                .checkInTime(booking.getCheckInTime())        // null for RESERVED PRE_BOOKING
-                .checkOutTime(booking.getCheckOutTime())      // null until checkOut
+                .checkInTime(booking.getCheckInTime()) // null for RESERVED PRE_BOOKING
+                .checkOutTime(booking.getCheckOutTime()) // null until checkOut
                 .pricePerHour(booking.getPricePerHour())
-                .totalAmount(booking.getTotalAmount())        // null until checkOut
+                .totalAmount(booking.getTotalAmount()) // null until checkOut
                 .createdAt(booking.getCreatedAt())
                 .build();
     }
 
     /**
-     * Centralized fare computation used by both checkOut() and calculateAmount().
-     * Enforces minimum 1-hour billing.
-     * Rounds to 2 decimal places (HALF_UP) — monetary precision.
+     * Centralized fare computation used by both checkOut() and
+     * calculateAmount(). Enforces minimum 1-hour billing. Rounds to 2 decimal
+     * places (HALF_UP) — monetary precision.
      */
     private BigDecimal computeFare(LocalDateTime checkIn, LocalDateTime checkOut,
-                                   BigDecimal pricePerHour) {
+            BigDecimal pricePerHour) {
         double rawMinutes = Duration.between(checkIn, checkOut).toMinutes();
         double rawHours = rawMinutes / 60.0;
         double billableHours = Math.max(1.0, rawHours);
@@ -643,7 +654,7 @@ public class BookingServiceImpl implements BookingService {
     private Booking findBookingOrThrow(UUID bookingId) {
         return bookingRepository.findByBookingId(bookingId)
                 .orElseThrow(() -> new RuntimeException(
-                        "Booking not found with id: " + bookingId));
+                "Booking not found with id: " + bookingId));
     }
 
     /**
@@ -654,14 +665,14 @@ public class BookingServiceImpl implements BookingService {
         if (!booking.getUserId().equals(userId)) {
             throw new SecurityException(
                     "You are not authorized to perform this action on booking: "
-                            + booking.getBookingId());
+                    + booking.getBookingId());
         }
     }
 
     /**
-     * Safe spot release — logs error instead of throwing.
-     * Used in rollback paths and auto-expiry where a failure
-     * must not abort the parent transaction or batch loop.
+     * Safe spot release — logs error instead of throwing. Used in rollback
+     * paths and auto-expiry where a failure must not abort the parent
+     * transaction or batch loop.
      */
     private void safeReleaseSpot(UUID spotId) {
         try {
@@ -672,8 +683,8 @@ public class BookingServiceImpl implements BookingService {
     }
 
     /**
-     * Safe lot counter increment — logs error instead of throwing.
-     * Used in rollback paths and auto-expiry.
+     * Safe lot counter increment — logs error instead of throwing. Used in
+     * rollback paths and auto-expiry.
      */
     private void safeIncrementLot(UUID lotId) {
         try {
@@ -682,5 +693,41 @@ public class BookingServiceImpl implements BookingService {
             log.error("[Rollback] Failed to increment lot counter for lotId={}: {}",
                     lotId, e.getMessage());
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ANALYTICS — Booking Statistics
+    // ─────────────────────────────────────────────────────────────────────────
+    @Override
+    @Transactional(readOnly = true)
+    public BookingStatsResponse getBookingStats(LocalDateTime from, LocalDateTime to) {
+        log.info("[Analytics] Fetching booking stats for period: {} to {}", from, to);
+
+        // Count ACTIVE bookings (current state, regardless of date range)
+        long activeCount = bookingRepository.countByStatus(BookingStatus.ACTIVE);
+
+        // Count COMPLETED bookings within the date range
+        long completedCount = bookingRepository.findByStatus(BookingStatus.COMPLETED).stream()
+                .filter(b -> b.getCreatedAt() != null
+                && !b.getCreatedAt().isBefore(from) && !b.getCreatedAt().isAfter(to))
+                .count();
+
+        // Count CANCELLED bookings within the date range
+        long cancelledCount = bookingRepository.findByStatus(BookingStatus.CANCELLED).stream()
+                .filter(b -> b.getCreatedAt() != null
+                && !b.getCreatedAt().isBefore(from) && !b.getCreatedAt().isAfter(to))
+                .count();
+
+        log.info("[Analytics] Booking stats - active: {}, completed: {}, cancelled: {}",
+                activeCount, completedCount, cancelledCount);
+
+        return BookingStatsResponse.builder()
+                .activeBookings(activeCount)
+                .completedBookings(completedCount)
+                .cancelledBookings(cancelledCount)
+                .periodStart(from)
+                .periodEnd(to)
+                .computedAt(LocalDateTime.now())
+                .build();
     }
 }

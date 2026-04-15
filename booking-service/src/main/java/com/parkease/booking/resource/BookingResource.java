@@ -9,24 +9,25 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * REST Controller for booking-service.
- * All endpoints under /api/v1/bookings.
+ * REST Controller for booking-service. All endpoints under /api/v1/bookings.
  *
- * userId and role are ALWAYS extracted from the JWT via SecurityContext —
- * never accepted from request body or query parameter.
+ * userId and role are ALWAYS extracted from the JWT via SecurityContext — never
+ * accepted from request body or query parameter.
  *
- * Authorization summary:
- *   SecurityConfig  → route-level role guards (DRIVER / MANAGER / ADMIN)
- *   BookingService  → ownership checks and business-level access control
+ * Authorization summary: SecurityConfig → route-level role guards (DRIVER /
+ * MANAGER / ADMIN) BookingService → ownership checks and business-level access
+ * control
  */
 @RestController
 @RequestMapping("/api/v1/bookings")
@@ -41,12 +42,11 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // POST /api/v1/bookings — Create Booking (DRIVER only)
     // ─────────────────────────────────────────────────────────────────────────
-
     @PostMapping
     @Operation(
             summary = "Create a new booking",
-            description = "Creates a PRE_BOOKING (RESERVED) or WALK_IN (ACTIVE) booking. " +
-                    "Validates vehicle ownership, spot availability, and type compatibility."
+            description = "Creates a PRE_BOOKING (RESERVED) or WALK_IN (ACTIVE) booking. "
+            + "Validates vehicle ownership, spot availability, and type compatibility."
     )
     public ResponseEntity<BookingResponse> createBooking(
             @Valid @RequestBody CreateBookingRequest request,
@@ -66,7 +66,6 @@ public class BookingResource {
     // IMPORTANT: Must be declared BEFORE /api/v1/bookings/{bookingId}
     // to prevent Spring mapping "all" as a UUID path variable
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/all")
     @Operation(
             summary = "Get all bookings [ADMIN]",
@@ -81,7 +80,6 @@ public class BookingResource {
     // GET /api/v1/bookings/my — Driver's Own Bookings
     // IMPORTANT: Must be declared BEFORE /{bookingId}
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/my")
     @Operation(
             summary = "Get my bookings",
@@ -97,7 +95,6 @@ public class BookingResource {
     // GET /api/v1/bookings/history — Driver's Booking History
     // IMPORTANT: Must be declared BEFORE /{bookingId}
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/history")
     @Operation(
             summary = "Get booking history",
@@ -112,7 +109,6 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/v1/bookings/lot/{lotId} — All Bookings for a Lot (MANAGER/ADMIN)
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/lot/{lotId}")
     @Operation(
             summary = "Get all bookings for a lot [MANAGER/ADMIN]",
@@ -127,7 +123,6 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/v1/bookings/lot/{lotId}/active — Active Bookings for a Lot
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/lot/{lotId}/active")
     @Operation(
             summary = "Get active bookings for a lot [MANAGER/ADMIN]",
@@ -142,7 +137,6 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/v1/bookings/{bookingId} — Get Booking by ID
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/{bookingId}")
     @Operation(
             summary = "Get booking by ID",
@@ -152,8 +146,8 @@ public class BookingResource {
             @PathVariable UUID bookingId,
             Authentication authentication) {
 
-        UUID userId   = extractUserId(authentication);
-        String role   = extractRole(authentication);
+        UUID userId = extractUserId(authentication);
+        String role = extractRole(authentication);
 
         BookingResponse booking = bookingService.getBookingById(bookingId);
 
@@ -168,7 +162,6 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // GET /api/v1/bookings/{bookingId}/fare — Fare Estimate
     // ─────────────────────────────────────────────────────────────────────────
-
     @GetMapping("/{bookingId}/fare")
     @Operation(
             summary = "Get fare estimate",
@@ -183,12 +176,11 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // PUT /api/v1/bookings/{bookingId}/checkin — Check In (DRIVER only)
     // ─────────────────────────────────────────────────────────────────────────
-
     @PutMapping("/{bookingId}/checkin")
     @Operation(
             summary = "Check in to a PRE_BOOKING",
-            description = "Transitions a RESERVED PRE_BOOKING to ACTIVE. Sets checkInTime. " +
-                    "Occupies the spot in spot-service."
+            description = "Transitions a RESERVED PRE_BOOKING to ACTIVE. Sets checkInTime. "
+            + "Occupies the spot in spot-service."
     )
     public ResponseEntity<BookingResponse> checkIn(
             @PathVariable UUID bookingId,
@@ -202,20 +194,19 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // PUT /api/v1/bookings/{bookingId}/checkout — Check Out (DRIVER/MANAGER/ADMIN)
     // ─────────────────────────────────────────────────────────────────────────
-
     @PutMapping("/{bookingId}/checkout")
     @Operation(
             summary = "Check out of a booking",
-            description = "Transitions ACTIVE → COMPLETED. Calculates fare (min 1 hour). " +
-                    "Releases spot and increments lot counter. " +
-                    "Publishes booking.checkout event for payment-service."
+            description = "Transitions ACTIVE → COMPLETED. Calculates fare (min 1 hour). "
+            + "Releases spot and increments lot counter. "
+            + "Publishes booking.checkout event for payment-service."
     )
     public ResponseEntity<BookingResponse> checkOut(
             @PathVariable UUID bookingId,
             Authentication authentication) {
 
-        UUID userId   = extractUserId(authentication);
-        String role   = extractRole(authentication);
+        UUID userId = extractUserId(authentication);
+        String role = extractRole(authentication);
 
         log.info("[BookingResource] PUT /bookings/{}/checkout — userId={}, role={}",
                 bookingId, userId, role);
@@ -236,12 +227,11 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // PUT /api/v1/bookings/{bookingId}/cancel — Cancel Booking
     // ─────────────────────────────────────────────────────────────────────────
-
     @PutMapping("/{bookingId}/cancel")
     @Operation(
             summary = "Cancel a booking",
-            description = "Cancels a RESERVED or ACTIVE booking. " +
-                    "DRIVER: own bookings only. MANAGER: lot-scoped. ADMIN: any booking."
+            description = "Cancels a RESERVED or ACTIVE booking. "
+            + "DRIVER: own bookings only. MANAGER: lot-scoped. ADMIN: any booking."
     )
     public ResponseEntity<BookingResponse> cancelBooking(
             @PathVariable UUID bookingId,
@@ -259,12 +249,11 @@ public class BookingResource {
     // ─────────────────────────────────────────────────────────────────────────
     // PUT /api/v1/bookings/{bookingId}/extend — Extend Booking (DRIVER only)
     // ─────────────────────────────────────────────────────────────────────────
-
     @PutMapping("/{bookingId}/extend")
     @Operation(
             summary = "Extend booking end time",
-            description = "Extends the planned endTime of a RESERVED or ACTIVE booking. " +
-                    "No spot changes — spot is already held. Fare recalculated at actual checkOut."
+            description = "Extends the planned endTime of a RESERVED or ACTIVE booking. "
+            + "No spot changes — spot is already held. Fare recalculated at actual checkOut."
     )
     public ResponseEntity<BookingResponse> extendBooking(
             @PathVariable UUID bookingId,
@@ -279,17 +268,31 @@ public class BookingResource {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // GET /api/v1/bookings/stats — Booking Statistics (ADMIN/SYSTEM only)
+    // ─────────────────────────────────────────────────────────────────────────
+    @GetMapping("/stats")
+    @Operation(
+            summary = "Get booking statistics for a date range [ADMIN/SYSTEM]",
+            description = "Returns counts of active, completed, and cancelled bookings for the specified date range. "
+            + "Used by analytics-service for platform summary. No JWT required (system service call via Feign)."
+    )
+    public ResponseEntity<BookingStatsResponse> getBookingStats(
+            @RequestParam("from") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam("to") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        log.info("[BookingResource] GET /bookings/stats — from={}, to={}", from, to);
+        return ResponseEntity.ok(bookingService.getBookingStats(from, to));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // PRIVATE HELPERS — JWT Claims Extraction from SecurityContext
     // ─────────────────────────────────────────────────────────────────────────
-
     /**
      * Extracts userId UUID from the JWT details attached by JwtAuthFilter.
      * Never re-parses the token — reads from already-populated SecurityContext.
      */
     private UUID extractUserId(Authentication authentication) {
-        JwtAuthFilter.WebAuthenticationDetailsSourceWrapper details =
-                (JwtAuthFilter.WebAuthenticationDetailsSourceWrapper)
-                        authentication.getDetails();
+        JwtAuthFilter.WebAuthenticationDetailsSourceWrapper details
+                = (JwtAuthFilter.WebAuthenticationDetailsSourceWrapper) authentication.getDetails();
         return details.getUserId();
     }
 
@@ -298,9 +301,8 @@ public class BookingResource {
      * Returns "DRIVER", "MANAGER", or "ADMIN" — uppercase.
      */
     private String extractRole(Authentication authentication) {
-        JwtAuthFilter.WebAuthenticationDetailsSourceWrapper details =
-                (JwtAuthFilter.WebAuthenticationDetailsSourceWrapper)
-                        authentication.getDetails();
+        JwtAuthFilter.WebAuthenticationDetailsSourceWrapper details
+                = (JwtAuthFilter.WebAuthenticationDetailsSourceWrapper) authentication.getDetails();
         return details.getRole();
     }
 }

@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @FeignClient(
         name = "payment-service",
-        url = "${services.payment.url}",
+//        url = "${services.payment.url}",
         configuration = FeignConfig.class
 )
 public interface PaymentServiceClient {

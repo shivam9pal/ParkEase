@@ -1,23 +1,34 @@
 package com.parkease.parkinglot.resource;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.parkease.parkinglot.dto.CreateLotRequest;
 import com.parkease.parkinglot.dto.LotResponse;
+import com.parkease.parkinglot.dto.LotSummaryResponse;
 import com.parkease.parkinglot.dto.UpdateLotRequest;
 import com.parkease.parkinglot.security.JwtUtil;
 import com.parkease.parkinglot.service.ParkingLotService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/lots")
@@ -31,7 +42,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // HELPER — extract claims from JWT header
     // ─────────────────────────────────────────────────
-
     private UUID extractUserId(String authHeader) {
         return jwtUtil.extractUserId(authHeader.substring(7));
     }
@@ -43,7 +53,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // POST /api/v1/lots — MANAGER creates a lot
     // ─────────────────────────────────────────────────
-
     @PostMapping
     @PreAuthorize("hasRole('MANAGER')")
     @SecurityRequirement(name = "bearerAuth")
@@ -58,9 +67,19 @@ public class ParkingLotResource {
     }
 
     // ─────────────────────────────────────────────────
+    // GET /api/v1/lots — ADMIN (all approved lots for dashboard)
+    // ─────────────────────────────────────────────────
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Get all approved parking lots (ADMIN only for dashboard)")
+    public ResponseEntity<List<LotSummaryResponse>> getAllApprovedLots() {
+        return ResponseEntity.ok(parkingLotService.getAllApprovedLots());
+    }
+
+    // ─────────────────────────────────────────────────
     // GET /api/v1/lots/{lotId} — PUBLIC
     // ─────────────────────────────────────────────────
-
     @GetMapping("/{lotId}")
     @Operation(summary = "Get parking lot by ID (public)")
     public ResponseEntity<LotResponse> getLotById(@PathVariable UUID lotId) {
@@ -70,7 +89,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // GET /api/v1/lots/city/{city} — PUBLIC
     // ─────────────────────────────────────────────────
-
     @GetMapping("/city/{city}")
     @Operation(summary = "Search lots by city (public)")
     public ResponseEntity<List<LotResponse>> getLotsByCity(@PathVariable String city) {
@@ -80,7 +98,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // GET /api/v1/lots/nearby?lat=&lng=&radius= — PUBLIC
     // ─────────────────────────────────────────────────
-
     @GetMapping("/nearby")
     @Operation(summary = "GPS proximity search using Haversine formula (public)")
     public ResponseEntity<List<LotResponse>> getNearbyLots(
@@ -93,7 +110,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // GET /api/v1/lots/search?keyword= — PUBLIC
     // ─────────────────────────────────────────────────
-
     @GetMapping("/search")
     @Operation(summary = "Keyword search on name, address, city (public)")
     public ResponseEntity<List<LotResponse>> searchLots(@RequestParam String keyword) {
@@ -103,7 +119,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // GET /api/v1/lots/manager/{managerId} — MANAGER (own) / ADMIN
     // ─────────────────────────────────────────────────
-
     @GetMapping("/manager/{managerId}")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get lots by manager ID (MANAGER or ADMIN)")
@@ -112,7 +127,7 @@ public class ParkingLotResource {
             @RequestHeader("Authorization") String authHeader) {
 
         UUID callerId = extractUserId(authHeader);
-        String role   = extractRole(authHeader);
+        String role = extractRole(authHeader);
 
         // Manager can only view their own lots; Admin can view any
         if (!"ADMIN".equals(role) && !callerId.equals(managerId)) {
@@ -125,7 +140,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // GET /api/v1/lots/all — ADMIN only
     // ─────────────────────────────────────────────────
-
     @GetMapping("/all")
     @PreAuthorize("hasRole('ADMIN')")
     @SecurityRequirement(name = "bearerAuth")
@@ -137,7 +151,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // GET /api/v1/lots/pending — ADMIN only
     // ─────────────────────────────────────────────────
-
     @GetMapping("/pending")
     @PreAuthorize("hasRole('ADMIN')")
     @SecurityRequirement(name = "bearerAuth")
@@ -149,7 +162,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // PUT /api/v1/lots/{lotId} — MANAGER (own) / ADMIN
     // ─────────────────────────────────────────────────
-
     @PutMapping("/{lotId}")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Update lot details (MANAGER own lot or ADMIN)")
@@ -159,11 +171,11 @@ public class ParkingLotResource {
             @RequestBody UpdateLotRequest request) {
 
         UUID callerId = extractUserId(authHeader);
-        String role   = extractRole(authHeader);
+        String role = extractRole(authHeader);
 
         // For ADMIN — pass any managerId (ownership not checked in service for admin)
         UUID requesterIdForService = "ADMIN".equals(role)
-                ? parkingLotService.getLotById(lotId).getManagerId()  // admin acts as owner
+                ? parkingLotService.getLotById(lotId).getManagerId() // admin acts as owner
                 : callerId;
 
         return ResponseEntity.ok(parkingLotService.updateLot(lotId, requesterIdForService, request));
@@ -172,7 +184,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // PUT /api/v1/lots/{lotId}/toggleOpen — MANAGER (own lot)
     // ─────────────────────────────────────────────────
-
     @PutMapping("/{lotId}/toggleOpen")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Toggle lot open/closed status (MANAGER own lot only)")
@@ -187,7 +198,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // PUT /api/v1/lots/{lotId}/approve — ADMIN only
     // ─────────────────────────────────────────────────
-
     @PutMapping("/{lotId}/approve")
     @PreAuthorize("hasRole('ADMIN')")
     @SecurityRequirement(name = "bearerAuth")
@@ -199,7 +209,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // PUT /api/v1/lots/{lotId}/decrement — Any valid JWT (booking-service)
     // ─────────────────────────────────────────────────
-
     @PutMapping("/{lotId}/decrement")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Decrement availableSpots — called by booking-service")
@@ -211,7 +220,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // PUT /api/v1/lots/{lotId}/increment — Any valid JWT (booking-service)
     // ─────────────────────────────────────────────────
-
     @PutMapping("/{lotId}/increment")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Increment availableSpots — called by booking-service on checkout/cancel")
@@ -223,7 +231,6 @@ public class ParkingLotResource {
     // ─────────────────────────────────────────────────
     // DELETE /api/v1/lots/{lotId} — MANAGER (own) / ADMIN
     // ─────────────────────────────────────────────────
-
     @DeleteMapping("/{lotId}")
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Delete a parking lot (MANAGER own lot or ADMIN)")
@@ -232,7 +239,7 @@ public class ParkingLotResource {
             @RequestHeader("Authorization") String authHeader) {
 
         UUID callerId = extractUserId(authHeader);
-        String role   = extractRole(authHeader);
+        String role = extractRole(authHeader);
         parkingLotService.deleteLot(lotId, callerId, role);
         return ResponseEntity.noContent().build();
     }

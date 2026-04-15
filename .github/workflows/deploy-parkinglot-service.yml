@@ -1,0 +1,17 @@
+name: Deploy parkinglot-service
+
+on:
+  push:
+    branches: [main, deployment]
+    paths:
+      - 'parkinglot-service/**'
+      - '.github/workflows/deploy-parkinglot-service.yml'
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service_name: parkinglot-service
+      service_port: '8082'
+      service_dir: parkinglot-service
+    secrets: inherit

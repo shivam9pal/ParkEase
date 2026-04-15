@@ -1,19 +1,27 @@
 package com.parkease.notification.controller;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.parkease.notification.dto.BroadcastNotificationRequest;
 import com.parkease.notification.dto.NotificationResponse;
 import com.parkease.notification.dto.UnreadCountResponse;
 import com.parkease.notification.service.NotificationService;
+
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/notifications")
@@ -97,9 +105,20 @@ public class NotificationController {
             Authentication auth) {
 
         UUID userId = (UUID) auth.getPrincipal();
-        log.info("DELETE /{} — requesterId={}", notificationId, userId);
-        notificationService.deleteNotification(notificationId, userId);
+        String role = extractRole(auth);
+        log.info("DELETE /{} — requesterId={}, role={}", notificationId, userId, role);
+        notificationService.deleteNotification(notificationId, userId, role);
         return ResponseEntity.noContent().build();
+    }
+
+    // ──────────────────────────────────────────────────────
+    // Helper method to extract role from authentication
+    // ──────────────────────────────────────────────────────
+    private String extractRole(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", ""))
+                .orElse("DRIVER");
     }
 
     // ──────────────────────────────────────────────────────
