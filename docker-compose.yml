@@ -21,8 +21,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
       interval: 20s
       timeout: 10s
-      retries: 5
-      start_period: 40s
+      retries: 10
+      start_period: 120s
 
   config-service:
     image: ghcr.io/shivam9pal/parkease-config-service:latest
@@ -35,13 +35,13 @@ services:
     restart: unless-stopped
     depends_on:
       eurekaserver:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
       interval: 20s
       timeout: 10s
-      retries: 8
-      start_period: 60s        # needs time to clone git repo
+      retries: 10
+      start_period: 120s        # needs time to clone git repo
 
   rabbitmq:
     image: rabbitmq:3.12-management
