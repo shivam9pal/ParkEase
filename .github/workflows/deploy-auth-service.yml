@@ -1,17 +1,20 @@
-name: Deploy auth-service
+name: Deploy Auth Service
 
 on:
   push:
-    branches: [main, deployment]
+    branches: [deployment]
     paths:
       - 'auth-service/**'
-      - '.github/workflows/deploy-auth-service.yml'
 
 jobs:
   deploy:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service_name: auth-service
-      service_port: '8081'
+      service_port: "8081"
       service_dir: auth-service
-    secrets: inherit
+    secrets:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

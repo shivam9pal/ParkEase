@@ -6,15 +6,12 @@ on:
       service_name:
         required: true
         type: string
-        description: "Service name (e.g., auth-service)"
       service_port:
         required: true
         type: string
-        description: "Port to run service on (e.g., 8081)"
       service_dir:
         required: true
         type: string
-        description: "Directory path of service (e.g., auth-service)"
     secrets:
       EC2_HOST:
         required: true
@@ -22,7 +19,9 @@ on:
         required: true
       EC2_PRIVATE_KEY:
         required: true
-      YOUR_GITHUB_TOKEN:          # ← NEW: optional, only used by config-service
+      GHCR_TOKEN:
+        required: true
+      YOUR_GITHUB_TOKEN:
         required: false
 
 jobs:
@@ -40,105 +39,56 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build ${{ inputs.service_name }}
+      - name: Build JAR
         run: |
-          echo "Building ${{ inputs.service_name }}..."
           mvn clean package -f ${{ inputs.service_dir }}/pom.xml -DskipTests
 
-      - name: Extract JAR filename
-        id: jar_file
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: shivam9pal
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build Docker image
         run: |
-          JAR_FILE=$(find ${{ inputs.service_dir }}/target -name "*.jar" -type f -not -name "*sources.jar" | head -1)
-          echo "JAR_FILE=$JAR_FILE" >> $GITHUB_OUTPUT
-          echo "Found JAR: $JAR_FILE"
+          docker build \
+            -t ghcr.io/shivam9pal/parkease-${{ inputs.service_name }}:latest \
+            -t ghcr.io/shivam9pal/parkease-${{ inputs.service_name }}:${{ github.sha }} \
+            ${{ inputs.service_dir }}
 
-      - name: Stop old service on EC2
-        uses: appleboy/ssh-action@master
+      - name: Push Docker image
+        run: |
+          docker push ghcr.io/shivam9pal/parkease-${{ inputs.service_name }}:latest
+          docker push ghcr.io/shivam9pal/parkease-${{ inputs.service_name }}:${{ github.sha }}
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script: |
-            echo "Deploying ${{ inputs.service_name }} to port ${{ inputs.service_port }}..."
-            mkdir -p ~/services ~/logs ~/pids ~/envs
+            cd ~/parkease
 
-            echo "Stopping old ${{ inputs.service_name }}..."
-            pkill -f "${{ inputs.service_name }}" || true
-            sleep 2
+            # Pull latest image
+            docker compose pull ${{ inputs.service_name }}
 
-            # Backup old JAR
-            if [ -f ~/services/${{ inputs.service_name }}.jar ]; then
-              mv ~/services/${{ inputs.service_name }}.jar ~/services/${{ inputs.service_name }}.jar.bak
-              echo "Backed up previous JAR"
-            fi
+            # Restart only this service
+            docker compose up -d --no-deps ${{ inputs.service_name }}
 
-      # ✅ NEW STEP: Inject GitHub token for config-service only
-      - name: Inject env secrets (config-service only)
-        if: ${{ inputs.service_name == 'config-service' }}
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_PRIVATE_KEY }}
-          script: |
-            mkdir -p ~/envs
-            # Write token to env file — overwritten on every deploy (auto-rotates)
-            echo "YOUR_GITHUB_TOKEN=${{ secrets.YOUR_GITHUB_TOKEN }}" > ~/envs/config-service.env
-            chmod 600 ~/envs/config-service.env
-            echo "✓ GitHub token injected to ~/envs/config-service.env"
+            # Wait for it to start
+            sleep 10
 
-      - name: Copy JAR to EC2
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_PRIVATE_KEY }}
-          source: ${{ steps.jar_file.outputs.JAR_FILE }}
-          target: ~/services
-          strip_components: 2
-
-      - name: Start ${{ inputs.service_name }} on EC2
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_PRIVATE_KEY }}
-          script: |
-            echo "Starting ${{ inputs.service_name }}..."
-
-            # ✅ Source env file if it exists (picks up YOUR_GITHUB_TOKEN for config-service)
-            ENV_FILE=~/envs/${{ inputs.service_name }}.env
-            if [ -f "$ENV_FILE" ]; then
-              echo "Loading env from $ENV_FILE"
-              set -a
-              source "$ENV_FILE"
-              set +a
-            fi
-
-            # Start service in background with env vars exported into the process
-            nohup java -jar ~/services/${{ inputs.service_name }}.jar \
-              --server.port=${{ inputs.service_port }} \
-              --server.servlet.context-path=/ \
-              > ~/logs/${{ inputs.service_name }}.log 2>&1 &
-
-            PID=$!
-            echo "$PID" > ~/pids/${{ inputs.service_name }}.pid
-            echo "Started ${{ inputs.service_name }} with PID: $PID"
-
-            # Wait and verify
-            sleep 8
-
+            # Health check
             if curl -sf http://localhost:${{ inputs.service_port }}/actuator/health > /dev/null 2>&1; then
-              echo "✓ ${{ inputs.service_name }} is healthy on port ${{ inputs.service_port }}"
-              exit 0
+              echo "✅ ${{ inputs.service_name }} healthy on port ${{ inputs.service_port }}"
             else
-              echo "⚠ Service started but health check still pending"
-              exit 0
+              echo "⚠️ ${{ inputs.service_name }} started — health check pending"
             fi
 
       - name: Deployment Summary
         run: |
-          echo "✅ ${{ inputs.service_name }} deployed successfully!"
-          echo "Port:    ${{ inputs.service_port }}"
-          echo "Host:    ${{ secrets.EC2_HOST }}"
-          echo "Service: ${{ inputs.service_name }}"
+          echo "✅ ${{ inputs.service_name }} deployed!"
+          echo "Image: ghcr.io/shivam9pal/parkease-${{ inputs.service_name }}:latest"
+          echo "SHA tag: ${{ github.sha }}"

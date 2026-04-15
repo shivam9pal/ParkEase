@@ -7,11 +7,20 @@ spring:
 
 eureka:
   instance:
-    hostname: localhost
+    hostname: eurekaserver              # ← was localhost, use container name
   client:
-    register-with-eureka: false
+    register-with-eureka: false         # server doesn't register with itself
     fetch-registry: false
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: http://eurekaserver:8761/eureka/
   server:
-    wait-time-in-ms-when-sync-empty: 0   # faster startup in dev
+    wait-time-in-ms-when-sync-empty: 0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always

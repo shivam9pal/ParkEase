@@ -1,17 +1,21 @@
-name: Deploy analytics-service
+# .github/workflows/deploy-analytics-service.yml
+name: Deploy Analytics Service
 
 on:
   push:
-    branches: [main, deployment]
+    branches: [deployment]
     paths:
       - 'analytics-service/**'
-      - '.github/workflows/deploy-analytics-service.yml'
 
 jobs:
   deploy:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service_name: analytics-service
-      service_port: '8088'
+      service_port: "8088"
       service_dir: analytics-service
-    secrets: inherit
+    secrets:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

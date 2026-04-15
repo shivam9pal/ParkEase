@@ -1,17 +1,20 @@
-name: Deploy payment-service
+name: Deploy Payment Service
 
 on:
   push:
-    branches: [main, deployment]
+    branches: [deployment]
     paths:
       - 'payment-service/**'
-      - '.github/workflows/deploy-payment-service.yml'
 
 jobs:
   deploy:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service_name: payment-service
-      service_port: '8085'
+      service_port: "8085"
       service_dir: payment-service
-    secrets: inherit
+    secrets:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

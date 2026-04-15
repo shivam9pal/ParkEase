@@ -1,17 +1,20 @@
-name: Deploy booking-service
+name: Deploy Booking Service
 
 on:
   push:
-    branches: [main, deployment]
+    branches: [deployment]
     paths:
       - 'booking-service/**'
-      - '.github/workflows/deploy-booking-service.yml'
 
 jobs:
   deploy:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service_name: booking-service
-      service_port: '8084'
+      service_port: "8084"
       service_dir: booking-service
-    secrets: inherit
+    secrets:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

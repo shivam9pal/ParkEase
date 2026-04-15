@@ -1,0 +1,261 @@
+name: parkease
+
+networks:
+  parkease-network:
+    driver: bridge
+
+services:
+
+  # ════════════════════════════════════════
+  # TIER 1 — Foundation (no dependencies)
+  # ════════════════════════════════════════
+
+  eurekaserver:
+    image: ghcr.io/shivam9pal/parkease-eurekaserver:latest
+    container_name: eurekaserver
+    ports:
+      - "8761:8761"
+    networks: [parkease-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  config-service:
+    image: ghcr.io/shivam9pal/parkease-config-service:latest
+    container_name: config-service
+    ports:
+      - "8888:8888"
+    networks: [parkease-network]
+    environment:
+      - YOUR_GITHUB_TOKEN=${YOUR_GITHUB_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      eurekaserver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 60s        # needs time to clone git repo
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ════════════════════════════════════════
+  # TIER 2 — Gateway
+  # ════════════════════════════════════════
+
+  apigateway:
+    image: ghcr.io/shivam9pal/parkease-apigateway:latest
+    container_name: apigateway
+    ports:
+      - "8080:8080"
+    networks: [parkease-network]
+    restart: unless-stopped
+    depends_on:
+      eurekaserver:
+        condition: service_healthy
+      config-service:
+        condition: service_healthy
+
+  # ════════════════════════════════════════
+  # TIER 3 — Core Services
+  # (all need config-service + eurekaserver)
+  # ════════════════════════════════════════
+
+  auth-service:
+    image: ghcr.io/shivam9pal/parkease-auth-service:latest
+    container_name: auth-service
+    ports:
+      - "8081:8081"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL}
+      - OAUTH2_FRONTEND_CALLBACK_URL=${OAUTH2_FRONTEND_CALLBACK_URL}
+    depends_on:
+      config-service:
+        condition: service_healthy
+      eurekaserver:
+        condition: service_healthy
+
+  parkinglot-service:
+    image: ghcr.io/shivam9pal/parkease-parkinglot-service:latest
+    container_name: parkinglot-service
+    ports:
+      - "8082:8082"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      config-service:
+        condition: service_healthy
+
+  spot-service:
+    image: ghcr.io/shivam9pal/parkease-spot-service:latest
+    container_name: spot-service
+    ports:
+      - "8083:8083"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      config-service:
+        condition: service_healthy
+
+  vehicle-service:
+    image: ghcr.io/shivam9pal/parkease-vehicle-service:latest
+    container_name: vehicle-service
+    ports:
+      - "8086:8086"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      config-service:
+        condition: service_healthy
+
+  notification-service:
+    image: ghcr.io/shivam9pal/parkease-notification-service:latest
+    container_name: notification-service
+    ports:
+      - "8087:8087"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+    depends_on:
+      config-service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  media-service:
+    image: ghcr.io/shivam9pal/parkease-media-service:latest
+    container_name: media-service
+    ports:
+      - "8090:8090"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - AWS_ACCESS_KEY=${AWS_ACCESS_KEY}
+      - AWS_SECRET_KEY=${AWS_SECRET_KEY}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+      - AWS_REGION=${AWS_REGION}
+    depends_on:
+      config-service:
+        condition: service_healthy
+
+  # ════════════════════════════════════════
+  # TIER 4 — Dependent Services
+  # ════════════════════════════════════════
+
+  booking-service:
+    image: ghcr.io/shivam9pal/parkease-booking-service:latest
+    container_name: booking-service
+    ports:
+      - "8084:8084"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      config-service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  payment-service:
+    image: ghcr.io/shivam9pal/parkease-payment-service:latest
+    container_name: payment-service
+    ports:
+      - "8085:8085"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+    depends_on:
+      config-service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  analytics-service:
+    image: ghcr.io/shivam9pal/parkease-analytics-service:latest
+    container_name: analytics-service
+    ports:
+      - "8088:8088"
+    networks: [parkease-network]
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      config-service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  rabbitmq-data:

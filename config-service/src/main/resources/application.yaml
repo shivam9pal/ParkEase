@@ -1,6 +1,4 @@
-
 spring:
-
   application:
     name: config-service
 
@@ -12,7 +10,26 @@ spring:
           username: shivam9pal
           password: ${YOUR_GITHUB_TOKEN}
           clone-on-start: true
+          default-label: ec2-docker        # ← NEW: fetch from ec2-docker branch
+          search-paths: '.'                # look in root of repo
+          force-pull: true                 # always pull latest on request
+
 server:
   port: 8888
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eurekaserver:8761/eureka/   # ← Docker container name
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, refresh
+  endpoint:
+    health:
+      show-details: always

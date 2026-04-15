@@ -3,12 +3,13 @@ spring:
     name: auth-service
 
   config:
-    import: "optional:configserver:http://localhost:8888"
+    import: "optional:configserver:http://config-service:8888"
+
 
 # Media Service Configuration
-media:
-  service:
-    url: ${MEDIA_SERVICE_URL:http://localhost:8085}
+#media:
+#  service:
+#    url: ${MEDIA_SERVICE_URL:http://localhost:8085}
 
 
 
