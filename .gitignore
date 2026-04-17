@@ -1,3 +1,5 @@
 Frontend
 ParkEaseConfig
 .github
+.env
+receipts/

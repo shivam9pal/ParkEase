@@ -52,6 +52,6 @@ public class User {
     private String profilePicUrl;
 
     public enum Role {
-        DRIVER, MANAGER, ADMIN
+        DRIVER, MANAGER
     }
 }

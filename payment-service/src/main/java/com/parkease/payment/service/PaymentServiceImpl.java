@@ -12,17 +12,20 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import com.razorpay.RazorpayClient;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.parkease.payment.dto.CreateRazorpayOrderRequest;
 import com.parkease.payment.dto.DailyRevenueResponse;
 import com.parkease.payment.dto.InitiatePaymentRequest;
 import com.parkease.payment.dto.PaymentResponse;
 import com.parkease.payment.dto.PaymentStatusResponse;
 import com.parkease.payment.dto.PaymentSummaryResponse;
+import com.parkease.payment.dto.RazorpayOrderResponse;
 import com.parkease.payment.dto.RevenueResponse;
+import com.parkease.payment.dto.VerifyRazorpayPaymentRequest;
 import com.parkease.payment.entity.Payment;
 import com.parkease.payment.enums.PaymentMode;
 import com.parkease.payment.enums.PaymentStatus;
@@ -34,14 +37,8 @@ import com.parkease.payment.feign.dto.BookingDetailDto;
 import com.parkease.payment.rabbitmq.PaymentEventPublisher;
 import com.parkease.payment.rabbitmq.dto.BookingEventPayload;
 import com.parkease.payment.repository.PaymentRepository;
-
-import org.json.JSONObject;
-
+import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
-import com.parkease.payment.dto.CreateRazorpayOrderRequest;
-import com.parkease.payment.dto.RazorpayOrderResponse;
-import com.parkease.payment.dto.VerifyRazorpayPaymentRequest;
-
 
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -144,7 +141,9 @@ public class PaymentServiceImpl implements PaymentService {
             throw new SecurityException("You do not own this booking");
         }
 
-        String transactionId = (request.getMode() == PaymentMode.CASH) ? null : UUID.randomUUID().toString();
+        String transactionId = (request.getMode() == PaymentMode.CASH)
+                ? "CASH_" + UUID.randomUUID().toString()
+                : UUID.randomUUID().toString();
 
         // Try to find existing PENDING payment (from checkout event)
         Optional<Payment> existingPayment = paymentRepository.findByBookingId(request.getBookingId());
@@ -405,7 +404,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .lotId(p.getLotId())
                 .amount(p.getAmount())
                 .status(p.getStatus().name())
-                .mode(p.getMode() != null ? p.getMode().name() : null)  // ✅ FIX: was p.getMode().name() — NPE for PENDING
+                .mode(p.getMode() != null ? p.getMode().name() : null) // ✅ FIX: was p.getMode().name() — NPE for PENDING
                 .transactionId(p.getTransactionId())
                 .currency(p.getCurrency())
                 .paidAt(p.getPaidAt())
@@ -427,7 +426,6 @@ public class PaymentServiceImpl implements PaymentService {
                 .updatedAt(updatedAt)
                 .build();
     }
-
 
     // ─── Razorpay: Step 1 — Create Order ──────────────────────────────────────
     @Override
@@ -484,7 +482,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             return RazorpayOrderResponse.builder()
                     .razorpayOrderId(razorpayOrderId)
-                    .razorpayKeyId(razorpayKeyId)    // frontend needs this to open Checkout
+                    .razorpayKeyId(razorpayKeyId) // frontend needs this to open Checkout
                     .amount(booking.getTotalAmount())
                     .amountInPaise(amountInPaise)
                     .currency("INR")
@@ -499,7 +497,6 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     // ─── Razorpay: Step 2 — Verify Signature & Capture ────────────────────────
-
     @Transactional
     @Override
     public PaymentResponse verifyAndCaptureRazorpayPayment(VerifyRazorpayPaymentRequest request) {
@@ -545,7 +542,9 @@ public class PaymentServiceImpl implements PaymentService {
                     secret.getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] hash = mac.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder();
-            for (byte b : hash) hex.append(String.format("%02x", b));
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
             return hex.toString();
         } catch (Exception e) {
             throw new RuntimeException("HMAC generation failed", e);

@@ -31,15 +31,15 @@ import com.parkease.analytics.entity.EventType;
 import com.parkease.analytics.entity.OccupancyLog;
 import com.parkease.analytics.enums.Period;
 import com.parkease.analytics.exception.ResourceNotFoundException;
+import com.parkease.analytics.feign.BookingServiceClient;
 import com.parkease.analytics.feign.ParkingLotServiceClient;
 import com.parkease.analytics.feign.PaymentServiceClient;
 import com.parkease.analytics.feign.SpotServiceClient;
 import com.parkease.analytics.feign.UserServiceClient;
-import com.parkease.analytics.feign.BookingServiceClient;
+import com.parkease.analytics.feign.dto.BookingStatsDto;
 import com.parkease.analytics.feign.dto.DailyRevenueDto;
 import com.parkease.analytics.feign.dto.LotSummaryDto;
 import com.parkease.analytics.feign.dto.RevenueDto;
-import com.parkease.analytics.feign.dto.BookingStatsDto;
 import com.parkease.analytics.rabbitmq.dto.BookingEventPayload;
 import com.parkease.analytics.repository.OccupancyLogRepository;
 
@@ -723,11 +723,10 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private Long safeGetUserCount() {
         try {
             log.debug("Fetching all users from auth-service");
-            // Fetch all users (calls /api/v1/auth/users which returns List<UserProfileResponse>)
-            // We then count both DRIVER and MANAGER roles
-            // Since the endpoint returns a list, we call it without role filter to get all users
-            var userCountDto = userServiceClient.getAllUsers(null);
-            long totalUsers = userCountDto.getUsers() != null ? userCountDto.getUsers().size() : 0;
+            // Fetch all users - endpoint returns List<UserProfileDto> directly
+            // (direct array, not wrapped in an object)
+            var users = userServiceClient.getAllUsers(null);
+            long totalUsers = users != null ? users.size() : 0;
             log.debug("Total users fetched: {}", totalUsers);
             return totalUsers;
         } catch (FeignException.Unauthorized e) {

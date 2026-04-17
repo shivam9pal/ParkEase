@@ -10,8 +10,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * File upload response from Media Service Matches: FileUploadResponse from
- * media-service
+ * File upload response from Media Service Matches: FileUploadResponse
  */
 @Data
 @NoArgsConstructor

@@ -25,7 +25,7 @@ public class Admin {
     @Column(unique = true, nullable = false)
     private String email;
 
-    // Always BCrypt — no OAuth2 for admins
+
     @Column(nullable = false)
     private String passwordHash;
 
