@@ -62,6 +62,19 @@ public class ParkingLot {
     @Column(nullable = false)
     private Boolean isApproved;
 
+    // Approval status: PENDING, APPROVED, or REJECTED
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private ApprovalStatus approvalStatus;
+
+    // Rejection reason (only populated if approvalStatus = REJECTED)
+    @Column(length = 1000)
+    private String rejectionReason;
+
+    // When the lot was rejected
+    @Column
+    private LocalDateTime rejectionDate;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -72,7 +85,14 @@ public class ParkingLot {
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
-        if (this.isOpen == null)    this.isOpen = true;
-        if (this.isApproved == null) this.isApproved = false;
+        if (this.isOpen == null) {
+            this.isOpen = true;
+        }
+        if (this.isApproved == null) {
+            this.isApproved = false;
+        }
+        if (this.approvalStatus == null) {
+            this.approvalStatus = ApprovalStatus.PENDING;
+        }
     }
 }

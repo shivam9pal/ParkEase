@@ -18,18 +18,15 @@ import java.util.stream.Collectors;
 /**
  * Centralized exception handler for vehicle-service.
  *
- * Maps every exception type to a clean ApiError JSON response with
- * an appropriate HTTP status code. No stack traces ever reach the client.
+ * Maps every exception type to a clean ApiError JSON response with an
+ * appropriate HTTP status code. No stack traces ever reach the client.
  *
- * HTTP Status mapping:
- *  201 CREATED            — returned directly by VehicleResource on success
- *  200 OK                 — returned directly by VehicleResource on success
- *  400 BAD REQUEST        — validation failures, duplicate plate, bad input
- *  401 UNAUTHORIZED       — missing/invalid/expired JWT token
- *  403 FORBIDDEN          — authenticated but insufficient permission
- *  404 NOT FOUND          — vehicle does not exist
- *  409 CONFLICT           — DB-level unique constraint violation
- *  500 INTERNAL ERROR     — unexpected errors
+ * HTTP Status mapping: 201 CREATED — returned directly by VehicleResource on
+ * success 200 OK — returned directly by VehicleResource on success 400 BAD
+ * REQUEST — validation failures, duplicate plate, bad input 401 UNAUTHORIZED —
+ * missing/invalid/expired JWT token 403 FORBIDDEN — authenticated but
+ * insufficient permission 404 NOT FOUND — vehicle does not exist 409 CONFLICT —
+ * DB-level unique constraint violation 500 INTERNAL ERROR — unexpected errors
  */
 @RestControllerAdvice
 @Slf4j
@@ -119,6 +116,82 @@ public class GlobalExceptionHandler {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // 404 — Vehicle not found
+    // ─────────────────────────────────────────────────────────────────────────
+    @ExceptionHandler(VehicleNotFoundException.class)
+    public ResponseEntity<ApiError> handleVehicleNotFound(
+            VehicleNotFoundException ex
+    ) {
+        log.warn("Vehicle not found: {}", ex.getMessage());
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                ApiError.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.NOT_FOUND.value())
+                        .error("Not Found")
+                        .message(ex.getMessage())
+                        .build()
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 400 — Duplicate license plate
+    // ─────────────────────────────────────────────────────────────────────────
+    @ExceptionHandler(DuplicatePlateException.class)
+    public ResponseEntity<ApiError> handleDuplicatePlate(
+            DuplicatePlateException ex
+    ) {
+        log.warn("Duplicate plate detected: {}", ex.getMessage());
+
+        return ResponseEntity.badRequest().body(
+                ApiError.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.BAD_REQUEST.value())
+                        .error("Bad Request")
+                        .message(ex.getMessage())
+                        .build()
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 403 — Vehicle access denied
+    // ─────────────────────────────────────────────────────────────────────────
+    @ExceptionHandler(VehicleAccessDeniedException.class)
+    public ResponseEntity<ApiError> handleVehicleAccessDenied(
+            VehicleAccessDeniedException ex
+    ) {
+        log.warn("Vehicle access denied: {}", ex.getMessage());
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                ApiError.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.FORBIDDEN.value())
+                        .error("Forbidden")
+                        .message(ex.getMessage())
+                        .build()
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 400 — Invalid vehicle type
+    // ─────────────────────────────────────────────────────────────────────────
+    @ExceptionHandler(InvalidVehicleTypeException.class)
+    public ResponseEntity<ApiError> handleInvalidVehicleType(
+            InvalidVehicleTypeException ex
+    ) {
+        log.warn("Invalid vehicle type: {}", ex.getMessage());
+
+        return ResponseEntity.badRequest().body(
+                ApiError.builder()
+                        .timestamp(LocalDateTime.now())
+                        .status(HttpStatus.BAD_REQUEST.value())
+                        .error("Bad Request")
+                        .message(ex.getMessage())
+                        .build()
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // 400 / 401 / 403 / 404 — RuntimeException (message-driven routing)
     // Follows the same pattern as auth-service GlobalExceptionHandler
     // ─────────────────────────────────────────────────────────────────────────
@@ -141,9 +214,9 @@ public class GlobalExceptionHandler {
         }
 
         // 400 — duplicate, already exists, already registered
-        if (message.contains("already registered") ||
-                message.contains("already exists") ||
-                message.contains("duplicate")) {
+        if (message.contains("already registered")
+                || message.contains("already exists")
+                || message.contains("duplicate")) {
             return ResponseEntity.badRequest().body(
                     ApiError.builder()
                             .timestamp(LocalDateTime.now())
@@ -155,9 +228,9 @@ public class GlobalExceptionHandler {
         }
 
         // 403 — forbidden / access denied
-        if (message.contains("forbidden") ||
-                message.contains("not allowed") ||
-                message.contains("access denied")) {
+        if (message.contains("forbidden")
+                || message.contains("not allowed")
+                || message.contains("access denied")) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
                     ApiError.builder()
                             .timestamp(LocalDateTime.now())
@@ -169,9 +242,9 @@ public class GlobalExceptionHandler {
         }
 
         // 401 — token issues
-        if (message.contains("expired") ||
-                message.contains("invalid token") ||
-                message.contains("unauthorized")) {
+        if (message.contains("expired")
+                || message.contains("invalid token")
+                || message.contains("unauthorized")) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                     ApiError.builder()
                             .timestamp(LocalDateTime.now())

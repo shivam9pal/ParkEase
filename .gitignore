@@ -3,3 +3,4 @@ ParkEaseConfig
 .github
 .env
 receipts/
+*.md

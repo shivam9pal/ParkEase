@@ -35,6 +35,7 @@ import com.parkease.auth.dto.RefreshTokenRequest;
 import com.parkease.auth.dto.RegisterRequest;
 import com.parkease.auth.dto.ResetPasswordRequest;
 import com.parkease.auth.dto.UpdateProfileRequest;
+import com.parkease.auth.dto.UserDetailDto;
 import com.parkease.auth.dto.UserProfileResponse;
 import com.parkease.auth.entity.User;
 import com.parkease.auth.security.JwtUtil;
@@ -55,9 +56,7 @@ public class AuthResource {
     private final AuthService authService;
     private final JwtUtil jwtUtil;
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EXISTING ENDPOINTS — completely unchanged
-    // ═══════════════════════════════════════════════════════════════════════════
+
     @Operation(summary = "Register a new user (DRIVER or MANAGER only)")
     @PostMapping("/register")
     public ResponseEntity<UserProfileResponse> register(
@@ -177,6 +176,32 @@ public class AuthResource {
     public ResponseEntity<UserProfileResponse> reactivateUser(
             @PathVariable UUID userId) {
         return ResponseEntity.ok(authService.reactivateUserAsAdmin(userId));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NEW — INTER-SERVICE USER DETAIL ENDPOINTS (for notification, analytics, etc)
+    // ═══════════════════════════════════════════════════════════════════════════
+    @Operation(
+            summary = "Get user details by ID for inter-service communication (System JWT with ADMIN role)",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/users/{userId}")
+    public ResponseEntity<UserDetailDto> getUserDetail(
+            @PathVariable UUID userId) {
+        return ResponseEntity.ok(authService.getUserDetailById(userId));
+    }
+
+    @Operation(
+            summary = "Get users by role for inter-service communication (System JWT with ADMIN role)",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/users/by-role/{role}")
+    public ResponseEntity<List<UserDetailDto>> getUsersByRole(
+            @PathVariable String role) {
+        User.Role roleEnum = User.Role.valueOf(role.toUpperCase());
+        return ResponseEntity.ok(authService.getUserDetailsByRole(roleEnum));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

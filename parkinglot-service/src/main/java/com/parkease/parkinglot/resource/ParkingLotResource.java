@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.parkease.parkinglot.dto.CreateLotRequest;
 import com.parkease.parkinglot.dto.LotResponse;
 import com.parkease.parkinglot.dto.LotSummaryResponse;
+import com.parkease.parkinglot.dto.RejectLotRequest;
 import com.parkease.parkinglot.dto.UpdateLotRequest;
 import com.parkease.parkinglot.security.JwtUtil;
 import com.parkease.parkinglot.service.ParkingLotService;
@@ -40,14 +41,32 @@ public class ParkingLotResource {
     private final JwtUtil jwtUtil;
 
     // ─────────────────────────────────────────────────
-    // HELPER — extract claims from JWT header
+    // HELPER — extract claims from JWT header with null safety
     // ─────────────────────────────────────────────────
     private UUID extractUserId(String authHeader) {
+        validateAuthHeader(authHeader);
         return jwtUtil.extractUserId(authHeader.substring(7));
     }
 
     private String extractRole(String authHeader) {
+        validateAuthHeader(authHeader);
         return jwtUtil.extractRole(authHeader.substring(7));
+    }
+
+    /**
+     * Validates that auth header is present and in correct format (Bearer
+     * <token>)
+     */
+    private void validateAuthHeader(String authHeader) {
+        if (authHeader == null || authHeader.isBlank()) {
+            throw new IllegalArgumentException("Authorization header is missing");
+        }
+        if (!authHeader.startsWith("Bearer ")) {
+            throw new IllegalArgumentException("Authorization header must start with 'Bearer '");
+        }
+        if (authHeader.length() <= 7) {
+            throw new IllegalArgumentException("Authorization header is malformed");
+        }
     }
 
     // ─────────────────────────────────────────────────
@@ -204,6 +223,19 @@ public class ParkingLotResource {
     @Operation(summary = "Approve a pending lot registration (ADMIN only)")
     public ResponseEntity<LotResponse> approveLot(@PathVariable UUID lotId) {
         return ResponseEntity.ok(parkingLotService.approveLot(lotId));
+    }
+
+    // ─────────────────────────────────────────────────
+    // PUT /api/v1/lots/{lotId}/reject — ADMIN only
+    // ─────────────────────────────────────────────────
+    @PutMapping("/{lotId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Reject a pending lot registration with reason (ADMIN only)")
+    public ResponseEntity<LotResponse> rejectLot(
+            @PathVariable UUID lotId,
+            @RequestBody RejectLotRequest request) {
+        return ResponseEntity.ok(parkingLotService.rejectLot(lotId, request));
     }
 
     // ─────────────────────────────────────────────────

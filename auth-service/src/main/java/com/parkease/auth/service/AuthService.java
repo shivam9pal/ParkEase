@@ -16,6 +16,7 @@ import com.parkease.auth.dto.OtpVerifyRequest;
 import com.parkease.auth.dto.RegisterRequest;
 import com.parkease.auth.dto.ResetPasswordRequest;
 import com.parkease.auth.dto.UpdateProfileRequest;
+import com.parkease.auth.dto.UserDetailDto;
 import com.parkease.auth.dto.UserProfileResponse;
 import com.parkease.auth.entity.User;
 
@@ -35,6 +36,20 @@ public interface AuthService {
     UserProfileResponse getUserByEmail(String email);
 
     UserProfileResponse getUserById(UUID userId);
+
+    /**
+     * Get lightweight user details by userId for inter-service communication.
+     * Called by notification-service, analytics-service, etc. No authorization
+     * required when called with system JWT.
+     */
+    UserDetailDto getUserDetailById(UUID userId);
+
+    /**
+     * Get lightweight user details for all users with a specific role. Useful
+     * for broadcast notifications to drivers, managers, etc. No authorization
+     * required when called with system JWT.
+     */
+    List<UserDetailDto> getUserDetailsByRole(User.Role role);
 
     UserProfileResponse updateProfile(UUID userId, UpdateProfileRequest request);
 

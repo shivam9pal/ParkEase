@@ -38,7 +38,7 @@ public interface PaymentService {
 
     List<PaymentSummaryResponse> getAllPayments();
 
-    byte[] generateAndGetReceipt(UUID paymentId, UUID requesterId, String requesterRole);
+    ReceiptResponse generateAndGetReceipt(UUID paymentId, UUID requesterId, String requesterRole);
 
     RazorpayOrderResponse createRazorpayOrder(UUID userId, CreateRazorpayOrderRequest request);
 

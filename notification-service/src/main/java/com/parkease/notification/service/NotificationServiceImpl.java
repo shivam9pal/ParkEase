@@ -11,6 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.parkease.notification.dto.BroadcastNotificationRequest;
+import com.parkease.notification.dto.SendToUserNotificationRequest;
+import com.parkease.notification.exception.InvalidNotificationException;
+import com.parkease.notification.exception.NotificationNotFoundException;
 import com.parkease.notification.dto.NotificationResponse;
 import com.parkease.notification.dto.UnreadCountResponse;
 import com.parkease.notification.entity.Notification;
@@ -153,7 +156,8 @@ public class NotificationServiceImpl implements NotificationService {
                 NotificationType.BOOKING_CANCELLED,
                 NotificationType.PAYMENT_COMPLETED,
                 NotificationType.PAYMENT_REFUNDED,
-                NotificationType.PROMO
+                NotificationType.PROMO,
+                NotificationType.LOT_REJECTION
         ).contains(type);
     }
 
@@ -239,11 +243,11 @@ public class NotificationServiceImpl implements NotificationService {
     public NotificationResponse markAsRead(UUID notificationId, UUID requesterId) {
         Notification notification = notificationRepository
                 .findByNotificationId(notificationId)
-                .orElseThrow(() -> new ResponseStatusException(
-                HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
+                .orElseThrow(() -> new NotificationNotFoundException(
+                notificationId.toString(), "Notification not found"));
 
         if (!notification.getRecipientId().equals(requesterId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+            throw new InvalidNotificationException(
                     "You can only mark your own notifications as read.");
         }
 
@@ -263,12 +267,12 @@ public class NotificationServiceImpl implements NotificationService {
     public void deleteNotification(UUID notificationId, UUID requesterId, String requesterRole) {
         Notification notification = notificationRepository
                 .findByNotificationId(notificationId)
-                .orElseThrow(() -> new ResponseStatusException(
-                HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
+                .orElseThrow(() -> new NotificationNotFoundException(
+                notificationId.toString(), "Notification not found"));
 
         // DRIVER can only delete own; ADMIN can delete any
         if ("DRIVER".equals(requesterRole) && !notification.getRecipientId().equals(requesterId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+            throw new InvalidNotificationException(
                     "You can only delete your own notifications.");
         }
 
@@ -311,6 +315,40 @@ public class NotificationServiceImpl implements NotificationService {
 
         log.info("Broadcast complete: title='{}', recipients={}, role={}",
                 request.getTitle(), recipients.size(), request.getTargetRole());
+    }
+
+    @Override
+    @Transactional
+    public void sendToUser(SendToUserNotificationRequest request) {
+        // Fetch the target user from auth-service
+        UserDetailDto user = safeGetUser(request.getManagerId());
+        if (user == null) {
+            log.warn("Target user not found: managerId={}", request.getManagerId());
+            return;
+        }
+
+        // Parse notification type string to enum
+        NotificationType type;
+        try {
+            type = NotificationType.valueOf(request.getNotificationType());
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid notification type: {}", request.getNotificationType());
+            throw new InvalidNotificationException("Invalid notification type: " + request.getNotificationType());
+        }
+
+        // Use existing dispatchAll to send via email + app
+        dispatchAll(
+                type,
+                request.getManagerId(),
+                request.getRelatedId(),
+                request.getRelatedType(),
+                request.getTitle(),
+                request.getMessage(),
+                user
+        );
+
+        log.info("Sent notification to user: managerId={}, type={}, title='{}'",
+                request.getManagerId(), type, request.getTitle());
     }
 
     // ══════════════════════════════════════════════════════════════

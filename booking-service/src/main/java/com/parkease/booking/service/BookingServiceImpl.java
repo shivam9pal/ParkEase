@@ -30,6 +30,7 @@ import com.parkease.booking.messaging.BookingEventPublisher;
 import com.parkease.booking.repository.BookingRepository;
 
 import feign.FeignException;
+import com.parkease.booking.exception.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -65,10 +66,10 @@ public class BookingServiceImpl implements BookingService {
 
         // ── Step 1: Validate time window ──────────────────────────────────────
         if (request.getStartTime().isBefore(LocalDateTime.now())) {
-            throw new IllegalArgumentException("startTime cannot be in the past.");
+            throw new InvalidBookingTimeException("startTime cannot be in the past.");
         }
         if (!request.getEndTime().isAfter(request.getStartTime())) {
-            throw new IllegalArgumentException("endTime must be after startTime.");
+            throw new InvalidBookingTimeException("endTime must be after startTime.");
         }
 
         // ── Step 2: Fetch and validate vehicle ────────────────────────────────
@@ -78,30 +79,30 @@ public class BookingServiceImpl implements BookingService {
             vehicle = vehicleServiceClient.getVehicleById(request.getVehicleId());
         } catch (FeignException.NotFound e) {
             log.warn("[BookingService] Vehicle not found: vehicleId={}, status={}", request.getVehicleId(), e.status());
-            throw new RuntimeException("Vehicle not found with id: " + request.getVehicleId());
+            throw new VehicleNotFoundException("Vehicle not found with id: " + request.getVehicleId());
         } catch (FeignException.ServiceUnavailable e) {
             log.error("[BookingService] Vehicle service returned 503: {}", e.getMessage());
-            throw new RuntimeException("Vehicle service unavailable. Please try again later.");
+            throw new VehicleServiceUnavailableException("Vehicle service unavailable. Please try again later.");
         } catch (FeignException.Unauthorized e) {
             log.error("[BookingService] Unauthorized access to vehicle-service: {}", e.getMessage());
-            throw new RuntimeException("Authorization failed when accessing vehicle service.");
+            throw new VehicleServiceUnavailableException("Authorization failed when accessing vehicle service.");
         } catch (FeignException.BadRequest e) {
             log.error("[BookingService] Bad request to vehicle-service: {}", e.getMessage());
-            throw new RuntimeException("Invalid vehicle request: " + e.contentUTF8());
+            throw new VehicleServiceUnavailableException("Invalid vehicle request: " + e.contentUTF8());
         } catch (FeignException e) {
             log.error("[BookingService] FeignException from vehicle-service - Status: {}, Message: {}, Body: {}",
                     e.status(), e.getMessage(), e.contentUTF8(), e);
-            throw new RuntimeException("Vehicle service unavailable. Please try again later.");
+            throw new VehicleServiceUnavailableException("Vehicle service unavailable. Please try again later.");
         }
 
         // Ownership check — driver cannot book with someone else's vehicle
         if (!vehicle.getOwnerId().equals(userId)) {
-            throw new SecurityException("Vehicle does not belong to the requesting user.");
+            throw new VehicleNotOwnedException("Vehicle does not belong to the requesting user.");
         }
 
         // Soft-delete check — inactive vehicles cannot be booked
         if (Boolean.FALSE.equals(vehicle.getIsActive())) {
-            throw new IllegalArgumentException("Vehicle is deactivated and cannot be used for booking.");
+            throw new VehicleDeactivatedException("Vehicle is deactivated and cannot be used for booking.");
         }
 
         // ── Step 3: Fetch and validate spot ───────────────────────────────────
@@ -111,32 +112,32 @@ public class BookingServiceImpl implements BookingService {
             spot = spotServiceClient.getSpotById(request.getSpotId());
         } catch (FeignException.NotFound e) {
             log.warn("[BookingService] Spot not found: spotId={}, status={}", request.getSpotId(), e.status());
-            throw new RuntimeException("Spot not found with id: " + request.getSpotId());
+            throw new SpotNotFoundException("Spot not found with id: " + request.getSpotId());
         } catch (FeignException.ServiceUnavailable e) {
             log.error("[BookingService] Spot service returned 503: {}", e.getMessage());
-            throw new RuntimeException("Spot service unavailable. Please try again later.");
+            throw new SpotServiceUnavailableException("Spot service unavailable. Please try again later.");
         } catch (FeignException e) {
             log.error("[BookingService] FeignException from spot-service - Status: {}, Message: {}",
                     e.status(), e.getMessage(), e);
-            throw new RuntimeException("Spot service unavailable. Please try again later.");
+            throw new SpotServiceUnavailableException("Spot service unavailable. Please try again later.");
         }
 
         // Spot must be AVAILABLE
         if (!"AVAILABLE".equalsIgnoreCase(spot.getStatus())) {
-            throw new IllegalStateException(
+            throw new SpotUnavailableException(
                     "Spot " + spot.getSpotNumber() + " is not available. Current status: " + spot.getStatus());
         }
 
         // Vehicle type must match spot's vehicle type
         if (!spot.getVehicleType().equalsIgnoreCase(vehicle.getVehicleType())) {
-            throw new IllegalArgumentException(
+            throw new SpotTypeIncompatibleException(
                     "Vehicle type " + vehicle.getVehicleType()
                     + " is not compatible with spot type " + spot.getVehicleType() + ".");
         }
 
         // EV check — if vehicle is EV, spot must support EV charging
         if (Boolean.TRUE.equals(vehicle.getIsEV()) && !Boolean.TRUE.equals(spot.getIsEVCharging())) {
-            throw new IllegalArgumentException(
+            throw new SpotNoEVChargingException(
                     "EV vehicle requires an EV charging spot. Selected spot does not support EV charging.");
         }
 
@@ -149,7 +150,7 @@ public class BookingServiceImpl implements BookingService {
         try {
             vehicleType = VehicleType.valueOf(vehicle.getVehicleType().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Unknown vehicle type: " + vehicle.getVehicleType());
+            throw new InvalidBookingTypeException("Unknown vehicle type: " + vehicle.getVehicleType());
         }
 
         // ── Step 5: Reserve or Occupy spot (based on booking type) ────────────
@@ -162,7 +163,7 @@ public class BookingServiceImpl implements BookingService {
             }
             spotActioned = true;
         } catch (FeignException e) {
-            throw new RuntimeException("Failed to reserve spot. Spot service unavailable or spot already taken.");
+            throw new SpotReservationException("Failed to reserve spot. Spot service unavailable or spot already taken.");
         }
 
         // ── Step 6: Decrement available spots counter in lot ──────────────────
@@ -173,7 +174,7 @@ public class BookingServiceImpl implements BookingService {
             if (spotActioned) {
                 safeReleaseSpot(request.getSpotId());
             }
-            throw new RuntimeException("Failed to update lot availability. Please try again.");
+            throw new LotServiceUnavailableException("Failed to update lot availability. Please try again.");
         }
 
         // ── Step 7: Build and save Booking entity ─────────────────────────────
@@ -204,7 +205,7 @@ public class BookingServiceImpl implements BookingService {
             // ROLLBACK Steps 5 & 6 — release spot + restore lot counter
             safeReleaseSpot(request.getSpotId());
             safeIncrementLot(lotId);
-            throw new RuntimeException("Failed to save booking. All changes have been rolled back.");
+            throw new BookingSaveException("Failed to save booking. All changes have been rolled back.");
         }
 
         log.info("[BookingService] Booking created: bookingId={}, userId={}, spotId={}, type={}",
@@ -233,14 +234,14 @@ public class BookingServiceImpl implements BookingService {
 
         // Step 3: Must be RESERVED to check in
         if (booking.getStatus() != BookingStatus.RESERVED) {
-            throw new IllegalStateException(
+            throw new BookingStateException(
                     "Cannot check in. Booking status is " + booking.getStatus()
                     + ". Only RESERVED bookings can be checked in.");
         }
 
         // Step 4: Must be a PRE_BOOKING — WALK_IN is already checked in at creation
         if (booking.getBookingType() == BookingType.WALK_IN) {
-            throw new IllegalArgumentException(
+            throw new InvalidBookingTimeException(
                     "WALK_IN bookings are automatically checked in at creation. No manual check-in required.");
         }
 
@@ -248,7 +249,7 @@ public class BookingServiceImpl implements BookingService {
         try {
             spotServiceClient.occupySpot(booking.getSpotId());
         } catch (FeignException e) {
-            throw new RuntimeException("Failed to occupy spot. Spot service unavailable.");
+            throw new SpotOccupationException("Failed to occupy spot. Spot service unavailable.");
         }
 
         // Step 6 & 7: Update and save
@@ -279,12 +280,12 @@ public class BookingServiceImpl implements BookingService {
         // Step 2: Ownership check — DRIVER checks own booking, MANAGER/ADMIN handled in controller
         // Service-level check: userId must match unless controller already verified role
         if (!booking.getUserId().equals(userId)) {
-            throw new SecurityException("You are not authorized to check out this booking.");
+            throw new BookingNotOwnedException("You are not authorized to check out this booking.");
         }
 
         // Step 3: Must be ACTIVE to check out
         if (booking.getStatus() != BookingStatus.ACTIVE) {
-            throw new IllegalStateException(
+            throw new BookingStateException(
                     "Cannot check out. Booking status is " + booking.getStatus()
                     + ". Only ACTIVE bookings can be checked out.");
         }
@@ -347,7 +348,7 @@ public class BookingServiceImpl implements BookingService {
             case "DRIVER":
                 // Drivers can only cancel their own bookings
                 if (!booking.getUserId().equals(userId)) {
-                    throw new SecurityException("You can only cancel your own bookings.");
+                    throw new BookingNotOwnedException("You can only cancel your own bookings.");
                 }
                 break;
             case "MANAGER":
@@ -360,15 +361,15 @@ public class BookingServiceImpl implements BookingService {
                 // Admin can cancel any booking — no restriction
                 break;
             default:
-                throw new SecurityException("Unrecognized role: " + requesterRole);
+                throw new BookingNotOwnedException("Unrecognized role: " + requesterRole);
         }
 
         // Step 3: Can only cancel RESERVED or ACTIVE bookings
         if (booking.getStatus() == BookingStatus.COMPLETED) {
-            throw new IllegalStateException("Cannot cancel a COMPLETED booking.");
+            throw new BookingStateException("Cannot cancel a COMPLETED booking.");
         }
         if (booking.getStatus() == BookingStatus.CANCELLED) {
-            throw new IllegalStateException("Booking is already CANCELLED.");
+            throw new BookingStateException("Booking is already CANCELLED.");
         }
 
         // Step 4: Release spot
@@ -406,20 +407,20 @@ public class BookingServiceImpl implements BookingService {
 
         // Step 3: Can only extend RESERVED or ACTIVE bookings
         if (booking.getStatus() != BookingStatus.RESERVED && booking.getStatus() != BookingStatus.ACTIVE) {
-            throw new IllegalStateException(
+            throw new BookingStateException(
                     "Cannot extend booking with status " + booking.getStatus()
                     + ". Only RESERVED or ACTIVE bookings can be extended.");
         }
 
         // Step 4: newEndTime must be strictly after current endTime
         if (!request.getNewEndTime().isAfter(booking.getEndTime())) {
-            throw new IllegalArgumentException(
+            throw new InvalidBookingTimeException(
                     "newEndTime must be after the current endTime (" + booking.getEndTime() + ").");
         }
 
         // Step 5: newEndTime must not be in the past
         if (request.getNewEndTime().isBefore(LocalDateTime.now())) {
-            throw new IllegalArgumentException("newEndTime cannot be in the past.");
+            throw new InvalidBookingTimeException("newEndTime cannot be in the past.");
         }
 
         // Step 6 & 7: Update and save

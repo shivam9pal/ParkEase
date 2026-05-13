@@ -2,8 +2,6 @@ package com.parkease.payment.service;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +22,8 @@ import com.parkease.payment.dto.PaymentResponse;
 import com.parkease.payment.dto.PaymentStatusResponse;
 import com.parkease.payment.dto.PaymentSummaryResponse;
 import com.parkease.payment.dto.RazorpayOrderResponse;
+import com.parkease.payment.dto.ReceiptResponse;
+import com.parkease.payment.dto.ReceiptUrlResponse;
 import com.parkease.payment.dto.RevenueResponse;
 import com.parkease.payment.dto.VerifyRazorpayPaymentRequest;
 import com.parkease.payment.entity.Payment;
@@ -53,6 +53,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentEventPublisher paymentEventPublisher;
     private final BookingServiceClient bookingServiceClient;
     private final ReceiptGeneratorService receiptGeneratorService;
+    private final S3ReceiptUploadService s3ReceiptUploadService;
 
     private final RazorpayClient razorpayClient;
 
@@ -324,8 +325,8 @@ public class PaymentServiceImpl implements PaymentService {
     // ─── Receipt ───────────────────────────────────────────────────────────────
     @Override
     @Transactional
-    public byte[] generateAndGetReceipt(UUID paymentId, UUID requesterId, String requesterRole) {
-        log.info("[Receipt] Generating receipt for paymentId={}, requesterId={}, role={}", paymentId, requesterId, requesterRole);
+    public ReceiptResponse generateAndGetReceipt(UUID paymentId, UUID requesterId, String requesterRole) {
+        log.info("[Receipt] Processing receipt for paymentId={}, requesterId={}, role={}", paymentId, requesterId, requesterRole);
 
         Payment payment = findPaymentById(paymentId);
         log.info("[Receipt] Payment found - Status: {}, UserId: {}", payment.getStatus(), payment.getUserId());
@@ -340,31 +341,43 @@ public class PaymentServiceImpl implements PaymentService {
         }
         log.info("[Receipt] Status check passed: {}", payment.getStatus());
 
-        if (payment.getReceiptPath() != null && Files.exists(Paths.get(payment.getReceiptPath()))) {
-            log.info("[Receipt] Using cached receipt from: {}", payment.getReceiptPath());
-            try {
-                return Files.readAllBytes(Paths.get(payment.getReceiptPath()));
-            } catch (IOException e) {
-                log.warn("[Receipt] Cached receipt unreadable, regenerating: {}", e.getMessage());
-            }
+        // ─── Check if S3 URL already exists ────────────────────────────────────
+        if (payment.getReceiptPath() != null && isValidS3Url(payment.getReceiptPath())) {
+            log.info("[Receipt] S3 URL found in database. Returning URL for download. URL: {}", payment.getReceiptPath());
+            return ReceiptResponse.fromS3Url(payment.getReceiptPath());
         }
 
+        log.info("[Receipt] No S3 URL found. Generating new receipt PDF.");
+
+        // ─── Fetch booking details ─────────────────────────────────────────────
         log.info("[Receipt] Fetching booking details for bookingId={}", payment.getBookingId());
         BookingDetailDto booking = fetchBooking(payment.getBookingId());
         log.info("[Receipt] Booking fetched successfully");
 
         try {
-            log.info("[Receipt] Generating new receipt PDF");
-            String path = receiptGeneratorService.generateReceipt(payment, booking);
-            log.info("[Receipt] PDF generated at: {}", path);
+            // ─── Generate PDF in-memory ───────────────────────────────────────
+            log.info("[Receipt] Generating receipt PDF in memory");
+            byte[] pdfBytes = receiptGeneratorService.generateReceipt(payment, booking);
+            log.info("[Receipt] PDF generated successfully. Size: {} bytes", pdfBytes.length);
 
-            payment.setReceiptPath(path);
-            paymentRepository.save(payment);
-            log.info("[Receipt] Receipt path saved to database");
+            // ─── SYNCHRONOUS upload to S3 ─────────────────────────────────────
+            // Blocks until S3 upload completes. Spring Cloud context is preserved
+            // on main thread, so Eureka discovery and Feign work correctly.
+            log.info("[Receipt] Starting SYNCHRONOUS S3 upload for paymentId={}", paymentId);
+            try {
+                String s3Url = s3ReceiptUploadService.uploadReceiptToS3Sync(paymentId, payment.getUserId(), pdfBytes);
+                log.info("[Receipt] S3 upload completed successfully. S3 URL: {}", s3Url);
 
-            byte[] bytes = Files.readAllBytes(Paths.get(path));
-            log.info("[Receipt] Receipt bytes read successfully, size: {} bytes", bytes.length);
-            return bytes;
+                // ─── Return S3 URL to user ───────────────────────────────────
+                log.info("[Receipt] Returning S3 URL to client for paymentId={}", paymentId);
+                return ReceiptResponse.fromS3Url(s3Url);
+
+            } catch (Exception s3Error) {
+                log.error("[Receipt] SYNC S3 upload failed for paymentId={}: {}",
+                        paymentId, s3Error.getMessage(), s3Error);
+                throw new RuntimeException("Failed to upload receipt to S3: " + s3Error.getMessage(), s3Error);
+            }
+
         } catch (IOException e) {
             log.error("[Receipt] IOException during receipt generation for paymentId={}: {}", paymentId, e.getMessage(), e);
             throw new RuntimeException("Receipt generation failed: " + e.getMessage());
@@ -372,6 +385,13 @@ public class PaymentServiceImpl implements PaymentService {
             log.error("[Receipt] Unexpected error during receipt generation for paymentId={}: {}", paymentId, e.getMessage(), e);
             throw e;
         }
+    }
+
+    /**
+     * Helper method to check if receiptPath is a valid S3 URL
+     */
+    private boolean isValidS3Url(String receiptPath) {
+        return receiptPath != null && receiptPath.startsWith("https://") && receiptPath.contains("s3");
     }
 
     // ─── Private Helpers ───────────────────────────────────────────────────────
@@ -526,6 +546,8 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setPaidAt(LocalDateTime.now());
 
         Payment saved = paymentRepository.save(payment);
+
+        // Publish event — RabbitMQ is async so this doesn't block
         paymentEventPublisher.publishPaymentCompleted(toResponse(saved));
 
         log.info("[Razorpay] Payment verified & captured — paymentId={}, razorpayPaymentId={}",

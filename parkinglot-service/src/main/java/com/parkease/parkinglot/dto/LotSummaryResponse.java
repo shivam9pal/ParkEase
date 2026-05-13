@@ -1,5 +1,6 @@
 package com.parkease.parkinglot.dto;
 
+import com.parkease.parkinglot.entity.ApprovalStatus;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -25,5 +26,6 @@ public class LotSummaryResponse {
     private Integer totalSpots;
     private Integer availableSpots;
     private Boolean isApproved;
+    private ApprovalStatus approvalStatus;
     private LocalDateTime createdAt;
 }

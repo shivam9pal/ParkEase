@@ -16,6 +16,9 @@ import com.parkease.spot.entity.ParkingSpot;
 import com.parkease.spot.entity.SpotStatus;
 import com.parkease.spot.entity.SpotType;
 import com.parkease.spot.entity.VehicleType;
+import com.parkease.spot.exception.DuplicateSpotException;
+import com.parkease.spot.exception.InvalidSpotStatusException;
+import com.parkease.spot.exception.SpotNotFoundException;
 import com.parkease.spot.repository.SpotRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -38,9 +41,7 @@ public class SpotServiceImpl implements SpotService {
 
         // Guard: spotNumber must be unique within the lot
         if (spotRepository.existsByLotIdAndSpotNumber(lotId, request.getSpotNumber())) {
-            throw new IllegalArgumentException(
-                    "Spot number '" + request.getSpotNumber() + "' already exists in lot " + lotId
-            );
+            throw new DuplicateSpotException(lotId, request.getSpotNumber());
         }
 
         ParkingSpot spot = ParkingSpot.builder()
@@ -189,13 +190,9 @@ public class SpotServiceImpl implements SpotService {
                 log.info("Spot [{}] AVAILABLE → RESERVED", spotId);
             }
             case RESERVED ->
-                throw new IllegalStateException(
-                        "Spot " + spotId + " is already RESERVED — cannot reserve again"
-                );
+                throw new InvalidSpotStatusException(spotId, spot.getStatus(), "reserve");
             case OCCUPIED ->
-                throw new IllegalStateException(
-                        "Spot " + spotId + " is OCCUPIED — cannot reserve an occupied spot"
-                );
+                throw new InvalidSpotStatusException(spotId, spot.getStatus(), "reserve");
         }
 
         return toResponse(spotRepository.save(spot));
@@ -216,9 +213,7 @@ public class SpotServiceImpl implements SpotService {
                 spot.setStatus(SpotStatus.OCCUPIED);
             }
             case OCCUPIED ->
-                throw new IllegalStateException(
-                        "Spot " + spotId + " is already OCCUPIED"
-                );
+                throw new InvalidSpotStatusException(spotId, spot.getStatus(), "occupy");
         }
 
         return toResponse(spotRepository.save(spot));
@@ -239,9 +234,7 @@ public class SpotServiceImpl implements SpotService {
                 spot.setStatus(SpotStatus.AVAILABLE);
             }
             case AVAILABLE ->
-                throw new IllegalStateException(
-                        "Spot " + spotId + " is already AVAILABLE — nothing to release"
-                );
+                throw new InvalidSpotStatusException(spotId, spot.getStatus(), "release");
         }
 
         return toResponse(spotRepository.save(spot));
@@ -265,13 +258,9 @@ public class SpotServiceImpl implements SpotService {
                 log.info("Spot [{}] MAINTENANCE → AVAILABLE", spotId);
             }
             case RESERVED ->
-                throw new IllegalStateException(
-                        "Spot " + spotId + " is RESERVED — cannot put reserved spot under maintenance"
-                );
+                throw new InvalidSpotStatusException(spotId, spot.getStatus(), "toggleMaintenance");
             case OCCUPIED ->
-                throw new IllegalStateException(
-                        "Spot " + spotId + " is OCCUPIED — cannot put occupied spot under maintenance"
-                );
+                throw new InvalidSpotStatusException(spotId, spot.getStatus(), "toggleMaintenance");
         }
 
         return toResponse(spotRepository.save(spot));
@@ -333,13 +322,13 @@ public class SpotServiceImpl implements SpotService {
     //  PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
     /**
-     * Central fetch helper — throws a named RuntimeException that
+     * Central fetch helper — throws SpotNotFoundException which
      * GlobalExceptionHandler maps to 404 NOT FOUND.
      */
     private ParkingSpot findSpotOrThrow(UUID spotId) {
         return spotRepository.findBySpotId(spotId)
                 .orElseThrow(()
-                        -> new RuntimeException("Spot not found with id: " + spotId)
+                        -> new SpotNotFoundException(spotId)
                 );
     }
 

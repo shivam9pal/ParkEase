@@ -12,6 +12,8 @@ import com.parkease.vehicle.dto.UpdateVehicleRequest;
 import com.parkease.vehicle.dto.VehicleResponse;
 import com.parkease.vehicle.entity.Vehicle;
 import com.parkease.vehicle.entity.VehicleType;
+import com.parkease.vehicle.exception.DuplicatePlateException;
+import com.parkease.vehicle.exception.VehicleNotFoundException;
 import com.parkease.vehicle.repository.VehicleRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -37,7 +39,7 @@ public class VehicleServiceImpl implements VehicleService {
         // Soft-deleted vehicles are ignored — allows re-registration of same plate.
         vehicleRepository.findByOwnerIdAndLicensePlateAndIsActiveTrue(ownerId, request.getLicensePlate())
                 .ifPresent(existing -> {
-                    throw new RuntimeException(
+                    throw new DuplicatePlateException(
                             "License plate '" + request.getLicensePlate()
                             + "' is already registered to your account"
                     );
@@ -71,7 +73,7 @@ public class VehicleServiceImpl implements VehicleService {
         log.debug("[VehicleService] Fetching vehicle by id={}", vehicleId);
 
         Vehicle vehicle = vehicleRepository.findByVehicleId(vehicleId)
-                .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + vehicleId));
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found with id: " + vehicleId));
 
         long queryDuration = System.currentTimeMillis() - startTime;
         log.info("[VehicleService] Vehicle fetched in {}ms - vehicleId={}", queryDuration, vehicleId);
@@ -100,7 +102,7 @@ public class VehicleServiceImpl implements VehicleService {
         log.debug("Fetching vehicle by plate={}", licensePlate);
 
         Vehicle vehicle = vehicleRepository.findByLicensePlate(licensePlate.toUpperCase().trim())
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new VehicleNotFoundException(
                 "Vehicle not found with license plate: " + licensePlate
         ));
 
@@ -127,7 +129,7 @@ public class VehicleServiceImpl implements VehicleService {
         log.info("Updating vehicle vehicleId={}", vehicleId);
 
         Vehicle vehicle = vehicleRepository.findByVehicleId(vehicleId)
-                .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + vehicleId));
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found with id: " + vehicleId));
 
         // ── Partial update — only apply non-null fields ──
         if (request.getMake() != null && !request.getMake().isBlank()) {
@@ -161,7 +163,7 @@ public class VehicleServiceImpl implements VehicleService {
         log.info("Soft-deleting vehicle vehicleId={}", vehicleId);
 
         Vehicle vehicle = vehicleRepository.findByVehicleId(vehicleId)
-                .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + vehicleId));
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found with id: " + vehicleId));
 
         // ── SOFT DELETE — never hard-delete, booking history depends on this ──
         vehicle.setIsActive(false);
@@ -179,7 +181,7 @@ public class VehicleServiceImpl implements VehicleService {
         log.debug("Getting vehicleType for vehicleId={}", vehicleId);
 
         Vehicle vehicle = vehicleRepository.findByVehicleId(vehicleId)
-                .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + vehicleId));
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found with id: " + vehicleId));
 
         return vehicle.getVehicleType();
     }
@@ -190,7 +192,7 @@ public class VehicleServiceImpl implements VehicleService {
         log.debug("Checking EV status for vehicleId={}", vehicleId);
 
         Vehicle vehicle = vehicleRepository.findByVehicleId(vehicleId)
-                .orElseThrow(() -> new RuntimeException("Vehicle not found with id: " + vehicleId));
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found with id: " + vehicleId));
 
         return Boolean.TRUE.equals(vehicle.getIsEV());
     }

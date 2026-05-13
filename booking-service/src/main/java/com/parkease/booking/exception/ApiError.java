@@ -11,8 +11,8 @@ import java.util.List;
  * Unified error response structure returned by GlobalExceptionHandler.
  * Consistent across all ParkEase services.
  *
- * errors field is only included when validation failures produce
- * multiple field-level messages — omitted (not null) for single errors.
+ * errors field is only included when validation failures produce multiple
+ * field-level messages — omitted (not null) for single errors.
  */
 @Data
 @Builder
@@ -21,7 +21,9 @@ public class ApiError {
 
     private LocalDateTime timestamp;
     private int status;
-    private String error;       // HTTP status phrase e.g. "Not Found"
-    private String message;     // Human-readable description
-    private List<String> errors; // Field-level validation errors (DTO @Valid failures)
+    private String error;           // HTTP status phrase e.g. "Not Found"
+    private String message;         // Human-readable description
+    private String errorCode;       // Business error code for frontend consumption
+    private String correlationId;   // UUID for request tracing
+    private List<String> errors;    // Field-level validation errors (DTO @Valid failures)
 }

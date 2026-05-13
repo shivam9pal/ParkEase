@@ -1,9 +1,8 @@
 package com.parkease.auth.exception;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
@@ -12,149 +11,140 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // ── Validation errors (EXISTING — unchanged) ──────────────────────────────
+    // ── Validation errors ──────────────────────────────────────────────────────
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationErrors(
-            MethodArgumentNotValidException ex) {
+    public ResponseEntity<ApiError> handleValidationErrors(
+            MethodArgumentNotValidException ex, WebRequest request) {
         List<String> errors = ex.getBindingResult().getFieldErrors()
                 .stream()
                 .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                 .collect(Collectors.toList());
-        return buildError(HttpStatus.BAD_REQUEST, "Validation failed", errors);
+
+        ApiError apiError = ApiError.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                .message("Validation failed")
+                .errorCode("VALIDATION_ERROR")
+                .correlationId(generateCorrelationId())
+                .path(getRequestPath(request))
+                .errors(errors)
+                .build();
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(apiError);
     }
 
-    // ── Bad credentials (EXISTING — unchanged) ────────────────────────────────
+    // ── Bad credentials ────────────────────────────────────────────────────────
     @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<Map<String, Object>> handleBadCredentials(
-            BadCredentialsException ex) {
-        return buildError(HttpStatus.UNAUTHORIZED, "Invalid email or password", null);
+    public ResponseEntity<ApiError> handleBadCredentials(
+            BadCredentialsException ex, WebRequest request) {
+        return buildErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                "Invalid email or password",
+                "INVALID_CREDENTIALS",
+                request
+        );
     }
 
-    // ── Runtime exceptions (EXISTING base + all new mappings added) ───────────
+    // ── OTP Exceptions ─────────────────────────────────────────────────────────
+    @ExceptionHandler(OtpException.class)
+    public ResponseEntity<ApiError> handleOtpException(
+            OtpException ex, WebRequest request) {
+        return buildCustomErrorResponse(ex, request);
+    }
+
+    // ── Authentication Exceptions ──────────────────────────────────────────────
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiError> handleAuthenticationException(
+            AuthenticationException ex, WebRequest request) {
+        return buildCustomErrorResponse(ex, request);
+    }
+
+    // ── User Management Exceptions ─────────────────────────────────────────────
+    @ExceptionHandler(UserManagementException.class)
+    public ResponseEntity<ApiError> handleUserManagementException(
+            UserManagementException ex, WebRequest request) {
+        return buildCustomErrorResponse(ex, request);
+    }
+
+    // ── Admin Exceptions ───────────────────────────────────────────────────────
+    @ExceptionHandler(AdminException.class)
+    public ResponseEntity<ApiError> handleAdminException(
+            AdminException ex, WebRequest request) {
+        return buildCustomErrorResponse(ex, request);
+    }
+
+    // ── Password Exceptions ────────────────────────────────────────────────────
+    @ExceptionHandler(PasswordException.class)
+    public ResponseEntity<ApiError> handlePasswordException(
+            PasswordException ex, WebRequest request) {
+        return buildCustomErrorResponse(ex, request);
+    }
+
+    // ── External Service Exceptions ────────────────────────────────────────────
+    @ExceptionHandler(ExternalServiceException.class)
+    public ResponseEntity<ApiError> handleExternalServiceException(
+            ExternalServiceException ex, WebRequest request) {
+        return buildCustomErrorResponse(ex, request);
+    }
+
+    // ── Generic exception fallback ─────────────────────────────────────────────
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException ex) {
-        String msg = ex.getMessage();
-        HttpStatus status = resolveStatus(msg);
-        return buildError(status, msg, null);
+    public ResponseEntity<ApiError> handleRuntimeException(
+            RuntimeException ex, WebRequest request) {
+        return buildErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ex.getMessage() != null ? ex.getMessage() : "Internal server error",
+                "INTERNAL_ERROR",
+                request
+        );
     }
 
-    // ── Status resolution — ordered from most specific to least specific ───────
-    private HttpStatus resolveStatus(String msg) {
-        if (msg == null) {
-            return HttpStatus.INTERNAL_SERVER_ERROR;
-        }
+    // ── Helper: Build custom error response for BaseAuthException subclasses ───
+    private ResponseEntity<ApiError> buildCustomErrorResponse(
+            BaseAuthException ex, WebRequest request) {
+        ApiError apiError = ApiError.builder()
+                .timestamp(LocalDateTime.now())
+                .status(ex.getHttpStatus().value())
+                .error(ex.getHttpStatus().getReasonPhrase())
+                .message(ex.getMessage())
+                .errorCode(ex.getErrorCode())
+                .correlationId(generateCorrelationId())
+                .path(getRequestPath(request))
+                .build();
 
-        // ── 403 Forbidden ──────────────────────────────────────────────────────
-        if (msg.contains("Registration as ADMIN is not allowed")) {
-            return HttpStatus.FORBIDDEN;
-        }
-        if (msg.contains("Only Super Admin can")) {
-            return HttpStatus.FORBIDDEN;
-        }
-        if (msg.contains("Super Admin cannot be deleted")) {
-            return HttpStatus.FORBIDDEN;
-        }
-
-        // ── 429 Too Many Requests ──────────────────────────────────────────────
-        if (msg.contains("Too many OTP requests")) {
-            return HttpStatus.TOO_MANY_REQUESTS;
-        }
-        if (msg.contains("Too many wrong attempts")) {
-            return HttpStatus.TOO_MANY_REQUESTS;
-        }
-        if (msg.contains("Please wait")) {
-            return HttpStatus.TOO_MANY_REQUESTS;
-        }
-
-        // ── 410 Gone ───────────────────────────────────────────────────────────
-        if (msg.contains("OTP has expired")) {
-            return HttpStatus.GONE;
-        }
-
-        // ── 404 Not Found ──────────────────────────────────────────────────────
-        if (msg.contains("OTP not found")) {
-            return HttpStatus.NOT_FOUND;
-        }
-        if (msg.contains("No account found with this email")) {
-            return HttpStatus.NOT_FOUND;
-        }
-        if (msg.contains("Admin not found")) {
-            return HttpStatus.NOT_FOUND;
-        }
-        if (msg.contains("not found")) {
-            return HttpStatus.NOT_FOUND;
-        }
-
-        // ── 502 Bad Gateway ────────────────────────────────────────────────────
-        if (msg.contains("Failed to send OTP email")) {
-            return HttpStatus.BAD_GATEWAY;
-        }
-
-        // ── 401 Unauthorized ───────────────────────────────────────────────────
-        if (msg.contains("Invalid Admin password")) {
-            return HttpStatus.UNAUTHORIZED;
-        }
-        if (msg.contains("Admin account is deactivated")) {
-            return HttpStatus.UNAUTHORIZED;
-        }
-        if (msg.contains("deactivated")) {
-            return HttpStatus.UNAUTHORIZED;
-        }
-        if (msg.contains("expired")) {
-            return HttpStatus.UNAUTHORIZED;
-        }
-
-        // ── 400 Bad Request ────────────────────────────────────────────────────
-        if (msg.contains("Invalid OTP")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("OTP already used")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("OTP session expired")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("Please verify your email")) {
-            return HttpStatus.FORBIDDEN;
-        }
-        if (msg.contains("Email not verified")) {
-            return HttpStatus.FORBIDDEN;
-        }
-        if (msg.contains("uses Google/GitHub login")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("Password reset is not available")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("Admin with this email already exists")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("already registered")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-        if (msg.contains("incorrect")) {
-            return HttpStatus.BAD_REQUEST;
-        }
-
-        // ── 500 fallback ───────────────────────────────────────────────────────
-        return HttpStatus.INTERNAL_SERVER_ERROR;
+        return ResponseEntity.status(ex.getHttpStatus()).body(apiError);
     }
 
-    // ── Response builder (EXISTING — unchanged) ───────────────────────────────
-    private ResponseEntity<Map<String, Object>> buildError(
-            HttpStatus status, String message, List<String> errors) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("timestamp", LocalDateTime.now());
-        body.put("status", status.value());
-        body.put("error", status.getReasonPhrase());
-        body.put("message", message);
-        if (errors != null) {
-            body.put("errors", errors);
-        }
-        return ResponseEntity.status(status).body(body);
+    // ── Helper: Build standard error response ──────────────────────────────────
+    private ResponseEntity<ApiError> buildErrorResponse(
+            HttpStatus status, String message, String errorCode, WebRequest request) {
+        ApiError apiError = ApiError.builder()
+                .timestamp(LocalDateTime.now())
+                .status(status.value())
+                .error(status.getReasonPhrase())
+                .message(message)
+                .errorCode(errorCode)
+                .correlationId(generateCorrelationId())
+                .path(getRequestPath(request))
+                .build();
+
+        return ResponseEntity.status(status).body(apiError);
+    }
+
+    // ── Helper: Generate unique correlation ID for request tracking ────────────
+    private String generateCorrelationId() {
+        return UUID.randomUUID().toString();
+    }
+
+    // ── Helper: Extract request path for logging ───────────────────────────────
+    private String getRequestPath(WebRequest request) {
+        String description = request.getDescription(false);
+        return description != null ? description.replace("uri=", "") : "";
     }
 }

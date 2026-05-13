@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.parkease.parkinglot.dto.CreateLotRequest;
 import com.parkease.parkinglot.dto.LotResponse;
 import com.parkease.parkinglot.dto.LotSummaryResponse;
+import com.parkease.parkinglot.dto.RejectLotRequest;
 import com.parkease.parkinglot.dto.UpdateLotRequest;
 
 public interface ParkingLotService {
@@ -33,6 +34,8 @@ public interface ParkingLotService {
     LotResponse toggleOpen(UUID lotId, UUID managerId);
 
     LotResponse approveLot(UUID lotId);
+
+    LotResponse rejectLot(UUID lotId, RejectLotRequest request);
 
     void deleteLot(UUID lotId, UUID requesterId, String requesterRole);
 

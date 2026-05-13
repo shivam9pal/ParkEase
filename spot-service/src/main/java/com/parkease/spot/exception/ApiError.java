@@ -12,8 +12,9 @@ import java.util.List;
 /**
  * Standardised error response body returned by GlobalExceptionHandler.
  *
- * <p>Shape matches the ApiError contract used across all ParkEase services
- * so the React frontend and inter-service callers can handle errors uniformly.
+ * <p>
+ * Shape matches the ApiError contract used across all ParkEase services so the
+ * React frontend and inter-service callers can handle errors uniformly.
  *
  * <pre>
  * {
@@ -34,19 +35,43 @@ public class ApiError {
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime timestamp;
 
-    /** HTTP status code — e.g. 400, 404, 409 */
+    /**
+     * HTTP status code — e.g. 400, 404, 409
+     */
     private int status;
 
-    /** HTTP status reason phrase — e.g. "Bad Request", "Not Found", "Conflict" */
+    /**
+     * HTTP status reason phrase — e.g. "Bad Request", "Not Found", "Conflict"
+     */
     private String error;
 
-    /** Human-readable description of what went wrong */
+    /**
+     * Human-readable description of what went wrong
+     */
     private String message;
 
     /**
-     * Field-level validation errors.
-     * Populated by MethodArgumentNotValidException handler.
-     * Empty list for all other error types.
+     * Error code for client-side classification. Examples: VALIDATION_FAILED,
+     * DUPLICATE_SPOT_NUMBER, INVALID_STATUS_TRANSITION, RESOURCE_NOT_FOUND
+     */
+    private String code;
+
+    /**
+     * Unique error tracking ID (only populated for 500 errors). Format:
+     * ERR-<YYYYMMDD>-<6 random alphanumeric>
+     * Helps support team correlate with server logs.
+     */
+    private String errorId;
+
+    /**
+     * Request path for debugging (optional)
+     */
+    private String path;
+
+    /**
+     * Field-level validation errors. Populated by
+     * MethodArgumentNotValidException handler. Empty list for all other error
+     * types.
      */
     private List<String> errors;
 }

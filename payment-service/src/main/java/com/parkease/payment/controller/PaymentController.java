@@ -147,20 +147,28 @@ public class PaymentController {
 
     // ─── 6.11 Download PDF Receipt ────────────────────────────────────────────
     @GetMapping("/{paymentId}/receipt")
-    public ResponseEntity<Resource> downloadReceipt(
+    public ResponseEntity<?> downloadReceipt(
             @PathVariable UUID paymentId,
             Authentication authentication) {
 
         UUID requesterId = extractUserId(authentication);
         String requesterRole = extractRole(authentication);
 
-        byte[] pdfBytes = paymentService.generateAndGetReceipt(paymentId, requesterId, requesterRole);
+        ReceiptResponse receiptResponse = paymentService.generateAndGetReceipt(paymentId, requesterId, requesterRole);
 
+        // ─── Case 1: S3 URL exists - return JSON with URL for frontend to download ──
+        if (receiptResponse.isFromS3()) {
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ReceiptUrlResponse.fromS3Url(receiptResponse.getS3Url()));
+        }
+
+        // ─── Case 2: PDF generated - return PDF bytes immediately ─────────────────
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"receipt_" + paymentId + ".pdf\"")
-                .body(new ByteArrayResource(pdfBytes));
+                .body(new ByteArrayResource(receiptResponse.getPdfBytes()));
     }
 
     // ─── 6.11 Get All Payments (ADMIN only) ────────────────────────────────────

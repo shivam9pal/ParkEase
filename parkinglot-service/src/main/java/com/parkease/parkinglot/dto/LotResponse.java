@@ -1,5 +1,6 @@
 package com.parkease.parkinglot.dto;
 
+import com.parkease.parkinglot.entity.ApprovalStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -10,6 +11,7 @@ import java.util.UUID;
 @Data
 @Builder
 public class LotResponse {
+
     private UUID lotId;
     private String name;
     private String address;
@@ -24,5 +26,8 @@ public class LotResponse {
     private LocalTime closeTime;
     private String imageUrl;
     private Boolean isApproved;
+    private ApprovalStatus approvalStatus;
+    private String rejectionReason;
+    private LocalDateTime rejectionDate;
     private LocalDateTime createdAt;
 }

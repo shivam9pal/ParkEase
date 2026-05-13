@@ -8,6 +8,7 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -15,6 +16,30 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.parkease.auth.config.OtpConfig;
+import com.parkease.auth.exception.AccountDeactivatedException;
+import com.parkease.auth.exception.AdminAlreadyExistsException;
+import com.parkease.auth.exception.AdminDeactivatedException;
+import com.parkease.auth.exception.AdminNotFoundException;
+import com.parkease.auth.exception.EmailAlreadyRegisteredException;
+import com.parkease.auth.exception.EmailServiceException;
+import com.parkease.auth.exception.EmailVerificationRequiredException;
+import com.parkease.auth.exception.IncorrectPasswordException;
+import com.parkease.auth.exception.InvalidAdminPasswordException;
+import com.parkease.auth.exception.MediaServiceException;
+import com.parkease.auth.exception.OtpAlreadyUsedException;
+import com.parkease.auth.exception.OtpCooldownException;
+import com.parkease.auth.exception.OtpException;
+import com.parkease.auth.exception.OtpNotFoundException;
+import com.parkease.auth.exception.OtpRateLimitException;
+import com.parkease.auth.exception.OtpWrongAttemptsException;
+import com.parkease.auth.exception.OtpExpiredException;
+import com.parkease.auth.exception.PasswordResetNotAvailableException;
+import com.parkease.auth.exception.S3UploadException;
+import com.parkease.auth.exception.TokenExpiredException;
+import com.parkease.auth.exception.UnauthorizedAdminActionException;
+import com.parkease.auth.exception.UserAlreadyActiveException;
+import com.parkease.auth.exception.UserAlreadyDeactivatedException;
+import com.parkease.auth.exception.UserNotFoundException;
 import com.parkease.auth.dto.AdminAuthResponse;
 import com.parkease.auth.dto.AdminCreateRequest;
 import com.parkease.auth.dto.AdminLoginRequest;
@@ -27,6 +52,7 @@ import com.parkease.auth.dto.OtpVerifyRequest;
 import com.parkease.auth.dto.RegisterRequest;
 import com.parkease.auth.dto.ResetPasswordRequest;
 import com.parkease.auth.dto.UpdateProfileRequest;
+import com.parkease.auth.dto.UserDetailDto;
 import com.parkease.auth.dto.UserProfileResponse;
 import com.parkease.auth.entity.Admin;
 import com.parkease.auth.entity.OtpVerification;
@@ -56,10 +82,7 @@ public class AuthServiceImpl implements AuthService {
     private final OtpConfig otpConfig;
     private final MediaServiceClient mediaServiceClient;
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // EXISTING METHODS — only register() has OTP guard added at the top
-    // Everything else is byte-for-byte identical to your current code
-    // ═══════════════════════════════════════════════════════════════════════════
+
     @Override
     @Transactional
     public UserProfileResponse register(RegisterRequest request) {
@@ -67,22 +90,22 @@ public class AuthServiceImpl implements AuthService {
         // ── OTP Guard (NEW — added at very start) ─────────────────────────────
         OtpVerification otpRecord = otpVerificationRepository
                 .findByEmailAndPurpose(request.getEmail(), OtpPurpose.REGISTRATION)
-                .orElseThrow(() -> new RuntimeException(
-                "Please verify your email with OTP before registering."));
+                .orElseThrow(() -> new OtpException(
+                "Please verify your email with OTP before registering.", HttpStatus.BAD_REQUEST, "OTP_NOT_VERIFIED"));
 
         if (!otpRecord.isVerified()) {
-            throw new RuntimeException(
+            throw new EmailVerificationRequiredException(
                     "Email not verified. Please complete OTP verification first.");
         }
 
         if (otpRecord.isUsed()) {
-            throw new RuntimeException(
+            throw new OtpAlreadyUsedException(
                     "OTP session expired. Please request a new OTP.");
         }
         // ── End OTP Guard ──────────────────────────────────────────────────────
 
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already registered: " + request.getEmail());
+            throw new EmailAlreadyRegisteredException("Email already registered: " + request.getEmail());
         }
 
         User user = User.builder()
@@ -110,10 +133,10 @@ public class AuthServiceImpl implements AuthService {
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
 
         if (!user.getIsActive()) {
-            throw new RuntimeException("Account is deactivated");
+            throw new AccountDeactivatedException("Account is deactivated");
         }
 
         String token = jwtUtil.generateToken(
@@ -255,7 +278,7 @@ public class AuthServiceImpl implements AuthService {
 
         } catch (Exception e) {
             log.error("ERROR in uploadAndUpdateProfilePicture: {}", e.getMessage(), e);
-            throw new RuntimeException("File upload failed: " + e.getMessage(), e);
+            throw new S3UploadException("File upload failed: " + e.getMessage(), e);
         }
     }
 
@@ -263,9 +286,9 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void changePassword(UUID userId, ChangePasswordRequest request) {
         User user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
-            throw new RuntimeException("Current password is incorrect");
+            throw new IncorrectPasswordException("Current password is incorrect");
         }
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
@@ -275,7 +298,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void deactivateAccount(UUID userId) {
         User user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
         user.setIsActive(false);
         userRepository.save(user);
     }
@@ -300,15 +323,30 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    public UserDetailDto getUserDetailById(UUID userId) {
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + userId));
+        return mapToUserDetailDto(user);
+    }
+
+    @Override
+    public List<UserDetailDto> getUserDetailsByRole(User.Role role) {
+        List<User> users = userRepository.findAllByRoleAndIsActive(role, true);
+        return users.stream()
+                .map(this::mapToUserDetailDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     @Transactional
     public UserProfileResponse deactivateUserAsAdmin(UUID userId) {
         // Step 1: User must exist
         User user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + userId));
 
         // Step 2: Already inactive?
         if (!user.getIsActive()) {
-            throw new RuntimeException("User is already deactivated");
+            throw new UserAlreadyDeactivatedException("User is already deactivated");
         }
 
         // Step 3: Deactivate (soft delete)
@@ -331,11 +369,11 @@ public class AuthServiceImpl implements AuthService {
     public UserProfileResponse reactivateUserAsAdmin(UUID userId) {
         // Step 1: User must exist
         User user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+                .orElseThrow(() -> new UserNotFoundException("User not found with id: " + userId));
 
         // Step 2: Already active?
         if (user.getIsActive()) {
-            throw new RuntimeException("User is already active");
+            throw new UserAlreadyActiveException("User is already active");
         }
 
         // Step 3: Reactivate
@@ -365,16 +403,16 @@ public class AuthServiceImpl implements AuthService {
         // Step 1: FORGOT_PASSWORD — validate user exists, is active, and has a password
         if (purpose == OtpPurpose.FORGOT_PASSWORD) {
             User user = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new RuntimeException(
+                    .orElseThrow(() -> new UserNotFoundException(
                     "No account found with this email"));
 
             if (!user.getIsActive()) {
-                throw new RuntimeException(
+                throw new AccountDeactivatedException(
                         "Account is deactivated. Contact support.");
             }
 
             if (user.getPasswordHash() == null) {
-                throw new RuntimeException(
+                throw new PasswordResetNotAvailableException(
                         "This account uses Google/GitHub login. Password reset is not available.");
             }
         }
@@ -401,7 +439,16 @@ public class AuthServiceImpl implements AuthService {
                     .lockedUntil(null)
                     .build();
             otpVerificationRepository.save(otp);
-            emailService.sendOtpEmail(email, code, purpose == OtpPurpose.REGISTRATION);
+
+            try {
+                emailService.sendOtpEmail(email, code, purpose == OtpPurpose.REGISTRATION);
+                log.info("OTP sent successfully for {} ({})", email, purpose);
+            } catch (EmailServiceException e) {
+                // ── Rollback: Delete OTP if email sending fails ─────────────────────
+                log.warn("Email delivery failed for {}. Rolling back OTP creation.", email, e);
+                otpVerificationRepository.delete(otp);
+                throw e;  // Re-throw to let GlobalExceptionHandler process it
+            }
             return "OTP sent successfully to " + email;
         }
 
@@ -410,7 +457,7 @@ public class AuthServiceImpl implements AuthService {
 
         // CHECK A: Active lockout?
         if (otp.getLockedUntil() != null && otp.getLockedUntil().isAfter(now)) {
-            throw new RuntimeException(
+            throw new OtpRateLimitException(
                     "Too many OTP requests. Try again after "
                     + formatLockoutTime(otp.getLockedUntil()));
         }
@@ -427,7 +474,7 @@ public class AuthServiceImpl implements AuthService {
                 = otp.getCreatedAt().plusSeconds(otpConfig.getResendWindowSeconds());
         if (now.isBefore(cooldownEnd)) {
             long secondsLeft = java.time.Duration.between(now, cooldownEnd).getSeconds();
-            throw new RuntimeException(
+            throw new OtpCooldownException(
                     "Please wait " + secondsLeft + " seconds before requesting a new OTP");
         }
 
@@ -436,7 +483,7 @@ public class AuthServiceImpl implements AuthService {
             LocalDateTime lockUntil = now.plusHours(otpConfig.getLockoutDurationHours());
             otp.setLockedUntil(lockUntil);
             otpVerificationRepository.save(otp);
-            throw new RuntimeException(
+            throw new OtpRateLimitException(
                     "Too many OTP requests. Try again after "
                     + formatLockoutTime(lockUntil));
         }
@@ -452,7 +499,16 @@ public class AuthServiceImpl implements AuthService {
         otp.setAttemptCount(otp.getAttemptCount() + 1);
         otpVerificationRepository.save(otp);
 
-        emailService.sendOtpEmail(email, newCode, purpose == OtpPurpose.REGISTRATION);
+        try {
+            emailService.sendOtpEmail(email, newCode, purpose == OtpPurpose.REGISTRATION);
+            log.info("OTP resent successfully for {} ({})", email, purpose);
+        } catch (EmailServiceException e) {
+            // ── Rollback: Restore previous OTP attempt count if email fails ────────
+            log.warn("Email delivery failed during OTP resend for {}. Rolling back attempt count.", email, e);
+            otp.setAttemptCount(otp.getAttemptCount() - 1);
+            otpVerificationRepository.save(otp);
+            throw e;  // Re-throw to let GlobalExceptionHandler process it
+        }
         return "OTP sent successfully to " + email;
     }
 
@@ -465,17 +521,17 @@ public class AuthServiceImpl implements AuthService {
         // Step 1: Record must exist
         OtpVerification otp = otpVerificationRepository
                 .findByEmailAndPurpose(email, purpose)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new OtpNotFoundException(
                 "OTP not found. Please request a new one."));
 
         // Step 2: Already consumed?
         if (otp.isUsed()) {
-            throw new RuntimeException("OTP already used. Please request a new one.");
+            throw new OtpAlreadyUsedException("OTP already used. Please request a new one.");
         }
 
         // Step 3: Expired?
         if (otp.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new RuntimeException("OTP has expired. Please request a new one.");
+            throw new OtpExpiredException("OTP has expired. Please request a new one.");
         }
 
         // Step 4: Wrong code?
@@ -487,13 +543,13 @@ public class AuthServiceImpl implements AuthService {
                 // Kill this OTP — user must request a new one
                 otp.setUsed(true);
                 otpVerificationRepository.save(otp);
-                throw new RuntimeException(
+                throw new OtpWrongAttemptsException(
                         "Too many wrong attempts. Please request a new OTP.");
             }
 
             int remaining = otpConfig.getMaxVerifyAttempts() - otp.getWrongAttemptCount();
-            throw new RuntimeException(
-                    "Invalid OTP. " + remaining + " attempt(s) remaining.");
+            throw new OtpException(
+                    "Invalid OTP. " + remaining + " attempt(s) remaining.", HttpStatus.BAD_REQUEST, "INVALID_OTP");
         }
 
         // Step 5: Correct — mark verified
@@ -510,24 +566,24 @@ public class AuthServiceImpl implements AuthService {
         // Step 1: OTP record must exist for FORGOT_PASSWORD
         OtpVerification otpRecord = otpVerificationRepository
                 .findByEmailAndPurpose(email, OtpPurpose.FORGOT_PASSWORD)
-                .orElseThrow(() -> new RuntimeException(
-                "Please verify your email with OTP first."));
+                .orElseThrow(() -> new OtpException(
+                "Please verify your email with OTP first.", HttpStatus.BAD_REQUEST, "OTP_NOT_VERIFIED"));
 
         // Step 2: Must be verified
         if (!otpRecord.isVerified()) {
-            throw new RuntimeException(
+            throw new EmailVerificationRequiredException(
                     "Email not verified. Please complete OTP verification first.");
         }
 
         // Step 3: Must not be already consumed
         if (otpRecord.isUsed()) {
-            throw new RuntimeException(
+            throw new OtpAlreadyUsedException(
                     "OTP session expired. Please request a new OTP.");
         }
 
         // Step 4: Update password
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
@@ -545,16 +601,16 @@ public class AuthServiceImpl implements AuthService {
 
         // Step 1: Email must exist in admins table
         Admin admin = adminRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("Admin Email Dosent Exits"));
+                .orElseThrow(() -> new AdminNotFoundException("Admin Email not found"));
 
         // Step 2: Account must be active
         if (!admin.isActive()) {
-            throw new RuntimeException("Admin account is deactivated");
+            throw new AdminDeactivatedException("Admin account is deactivated");
         }
 
         // Step 3: Password must match
         if (!passwordEncoder.matches(request.getPassword(), admin.getPasswordHash())) {
-            throw new RuntimeException("Invalid Admin password");
+            throw new InvalidAdminPasswordException("Invalid Admin password");
         }
 
         // Step 4: Issue admin JWT with isSuperAdmin claim
@@ -579,16 +635,16 @@ public class AuthServiceImpl implements AuthService {
 
         // Step 1: Requester must be Super Admin
         Admin requester = adminRepository.findByAdminId(requesterId)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new UnauthorizedAdminActionException(
                 "Only Super Admin can create new admins"));
 
         if (!requester.isSuperAdmin()) {
-            throw new RuntimeException("Only Super Admin can create new admins");
+            throw new UnauthorizedAdminActionException("Only Super Admin can create new admins");
         }
 
         // Step 2: Email must not already exist in admins table
         if (adminRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Admin with this email already exists");
+            throw new AdminAlreadyExistsException("Admin with this email already exists");
         }
 
         // Step 3: Create — isSuperAdmin is ALWAYS false for created admins
@@ -699,6 +755,17 @@ public class AuthServiceImpl implements AuthService {
                 .createdAt(user.getCreatedAt())
                 .profilePicUrl(user.getProfilePicUrl())
                 .build();
+    }
+
+    private UserDetailDto mapToUserDetailDto(User user) {
+        return new UserDetailDto(
+                user.getUserId(),
+                user.getFullName(),
+                user.getEmail(),
+                user.getPhone(),
+                user.getRole(),
+                user.getIsActive()
+        );
     }
 
     private AdminProfileResponse mapToAdminProfileResponse(Admin admin) {

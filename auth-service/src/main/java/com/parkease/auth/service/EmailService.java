@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import com.resend.Resend;
 import com.resend.core.exception.ResendException;
 import com.resend.services.emails.model.CreateEmailOptions;
+import com.parkease.auth.exception.EmailServiceException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -63,8 +64,129 @@ public class EmailService {
             log.info("OTP email sent successfully to: {}", toEmail);
 
         } catch (ResendException e) {
-            log.error("Failed to send OTP email to {}: {}", toEmail, e.getMessage());
-            throw new RuntimeException("Failed to send OTP email. Please try again.");
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "Unknown email service error";
+
+            // ── Parse SMTP error codes from Resend exception ────────────────────────
+            EmailErrorType errorType = parseEmailError(errorMessage, toEmail);
+
+            // ── Log specific error details for debugging ───────────────────────────
+            log.error("Failed to send OTP email to {}: [{}] {}",
+                    toEmail, errorType.getErrorCode(), errorMessage);
+
+            // ── Throw EmailServiceException with specific error code ───────────────
+            throw new EmailServiceException(
+                    errorType.getUserMessage() + " (to: " + maskEmail(toEmail) + ")",
+                    e
+            );
+        }
+    }
+
+    // ── Helper: Determine email error type from exception message ────────────────
+    private EmailErrorType parseEmailError(String errorMessage, String toEmail) {
+        if (errorMessage == null) {
+            return EmailErrorType.UNKNOWN;
+        }
+
+        String lowerMessage = errorMessage.toLowerCase();
+
+        // ── Permanent bounce errors (550-553 range) ──────────────────────────────
+        if (errorMessage.contains("550") || lowerMessage.contains("mailbox unavailable")) {
+            log.warn("Permanent bounce: Mailbox unavailable for {}", toEmail);
+            return EmailErrorType.BOUNCE_MAILBOX_UNAVAILABLE;
+        }
+
+        if (errorMessage.contains("551") || lowerMessage.contains("user not local")) {
+            log.warn("Permanent bounce: User not local for {}", toEmail);
+            return EmailErrorType.BOUNCE_USER_NOT_LOCAL;
+        }
+
+        if (errorMessage.contains("552") || lowerMessage.contains("exceeded storage")) {
+            log.warn("Permanent bounce: Exceeded storage for {}", toEmail);
+            return EmailErrorType.BOUNCE_EXCEEDED_STORAGE;
+        }
+
+        if (errorMessage.contains("553") || lowerMessage.contains("mailbox name not allowed")) {
+            log.warn("Permanent bounce: Invalid mailbox name for {}", toEmail);
+            return EmailErrorType.BOUNCE_INVALID_MAILBOX;
+        }
+
+        // ── Temporary errors (4xx codes) ───────────────────────────────────────────
+        if (errorMessage.contains("450") || errorMessage.contains("451")) {
+            log.warn("Temporary email error for {}: {}", toEmail, errorMessage);
+            return EmailErrorType.TEMPORARY_ERROR;
+        }
+
+        // ── Invalid email format ──────────────────────────────────────────────────
+        if (lowerMessage.contains("invalid") && lowerMessage.contains("email")) {
+            log.warn("Invalid email format: {}", maskEmail(toEmail));
+            return EmailErrorType.INVALID_EMAIL_FORMAT;
+        }
+
+        // ── Rate limiting/quota exceeded ──────────────────────────────────────────
+        if (errorMessage.contains("429") || lowerMessage.contains("rate limit")
+                || lowerMessage.contains("quota")) {
+            log.warn("Rate limit/quota exceeded for email service");
+            return EmailErrorType.RATE_LIMIT_EXCEEDED;
+        }
+
+        // ── Default: Unknown error ────────────────────────────────────────────────
+        log.error("Unclassified email error for {}: {}", toEmail, errorMessage);
+        return EmailErrorType.UNKNOWN;
+    }
+
+    // ── Helper: Mask email for logging ────────────────────────────────────────
+    private String maskEmail(String email) {
+        if (email == null || email.length() < 5) {
+            return "***";
+        }
+        int atIndex = email.indexOf('@');
+        if (atIndex <= 1) {
+            return "***@" + email.substring(atIndex + 1);
+        }
+        return email.charAt(0) + "***" + email.substring(atIndex);
+    }
+
+    // ── Enum: Email error types with user-friendly messages ──────────────────────
+    private enum EmailErrorType {
+        BOUNCE_MAILBOX_UNAVAILABLE(
+                "EMAIL_BOUNCE_MAILBOX_UNAVAILABLE",
+                "This email address does not exist or is no longer active. Please verify your email."),
+        BOUNCE_USER_NOT_LOCAL(
+                "EMAIL_BOUNCE_USER_NOT_FOUND",
+                "This email address was not found. Please double-check and try again."),
+        BOUNCE_EXCEEDED_STORAGE(
+                "EMAIL_BOUNCE_STORAGE_FULL",
+                "The recipient's mailbox is full. Please ask them to clear space and try again."),
+        BOUNCE_INVALID_MAILBOX(
+                "EMAIL_BOUNCE_INVALID",
+                "This email address is invalid. Please verify and try again."),
+        INVALID_EMAIL_FORMAT(
+                "EMAIL_INVALID_FORMAT",
+                "The email address format is invalid. Please enter a valid email."),
+        TEMPORARY_ERROR(
+                "EMAIL_TEMPORARY_ERROR",
+                "Email service is temporarily unavailable. Please try again in a few moments."),
+        RATE_LIMIT_EXCEEDED(
+                "EMAIL_RATE_LIMIT",
+                "Too many email requests. Please try again later."),
+        UNKNOWN(
+                "EMAIL_SERVICE_ERROR",
+                "Failed to send email. Please try again.");
+
+        private final String errorCode;
+        private final String userMessage;
+
+        EmailErrorType(String errorCode, String userMessage) {
+            this.errorCode = errorCode;
+            this.userMessage = userMessage;
+        }
+
+        public String getErrorCode() {
+            return errorCode;
+        }
+
+        public String getUserMessage() {
+            return userMessage;
         }
     }
 

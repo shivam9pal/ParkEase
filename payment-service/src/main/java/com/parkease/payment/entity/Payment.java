@@ -68,12 +68,17 @@ public class Payment {
     @Column(name = "receipt_path", length = 500)
     private String receiptPath;
 
+    @Column(name = "receipt_upload_id")
+    private UUID receiptUploadId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
-        if (this.currency == null) this.currency = "INR";
+        if (this.currency == null) {
+            this.currency = "INR";
+        }
     }
 }

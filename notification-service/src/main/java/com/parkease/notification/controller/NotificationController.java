@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.parkease.notification.dto.BroadcastNotificationRequest;
 import com.parkease.notification.dto.NotificationResponse;
+import com.parkease.notification.dto.SendToUserNotificationRequest;
 import com.parkease.notification.dto.UnreadCountResponse;
 import com.parkease.notification.service.NotificationService;
 
@@ -145,5 +146,31 @@ public class NotificationController {
                 request.getTargetRole(), request.getTitle());
         notificationService.sendBroadcast(request);
         return ResponseEntity.accepted().build();   // 202 — broadcast may be async
+    }
+
+    // ──────────────────────────────────────────────────────
+    // POST /api/v1/notifications/send-to-user
+    // Role: ADMIN only
+    // Sends a notification to a specific user (e.g., lot rejection)
+    // ──────────────────────────────────────────────────────
+    @PostMapping("/send-to-user")
+    public ResponseEntity<Void> sendToUser(
+            @Valid @RequestBody SendToUserNotificationRequest request,
+            Authentication auth) {
+
+        UUID adminId = (UUID) auth.getPrincipal();
+        String role = extractRole(auth);
+
+        log.info("POST /send-to-user — managerId={}, from={}, role={}, title='{}'",
+                request.getManagerId(), adminId, role, request.getTitle());
+
+        // Only ADMIN can send targeted notifications
+        if (!"ADMIN".equals(role)) {
+            log.warn("Unauthorized send-to-user attempt by role={}, userId={}", role, adminId);
+            throw new RuntimeException("Only ADMIN can send notifications to specific users");
+        }
+
+        notificationService.sendToUser(request);
+        return ResponseEntity.accepted().build();   // 202 — async processing
     }
 }

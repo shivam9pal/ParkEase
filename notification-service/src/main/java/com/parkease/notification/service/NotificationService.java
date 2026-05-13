@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.parkease.notification.dto.BroadcastNotificationRequest;
 import com.parkease.notification.dto.NotificationResponse;
+import com.parkease.notification.dto.SendToUserNotificationRequest;
 import com.parkease.notification.dto.UnreadCountResponse;
 import com.parkease.notification.rabbitmq.dto.BookingEventPayload;
 import com.parkease.notification.rabbitmq.dto.PaymentEventPayload;
@@ -33,4 +34,6 @@ public interface NotificationService {
     List<NotificationResponse> getAllNotifications();
 
     void sendBroadcast(BroadcastNotificationRequest request);
+
+    void sendToUser(SendToUserNotificationRequest request);
 }

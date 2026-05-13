@@ -3,22 +3,34 @@ package com.parkease.parkinglot.service;
 import com.parkease.parkinglot.dto.CreateLotRequest;
 import com.parkease.parkinglot.dto.LotResponse;
 import com.parkease.parkinglot.dto.LotSummaryResponse;
+import com.parkease.parkinglot.dto.RejectLotRequest;
 import com.parkease.parkinglot.dto.UpdateLotRequest;
+import com.parkease.parkinglot.entity.ApprovalStatus;
 import com.parkease.parkinglot.entity.ParkingLot;
+import com.parkease.parkinglot.exception.InvalidAccessException;
+import com.parkease.parkinglot.exception.NoAvailableSpotsException;
+import com.parkease.parkinglot.exception.ParkingLotNotFoundException;
+import com.parkease.parkinglot.feign.NotificationServiceClient;
+import com.parkease.parkinglot.feign.SendToUserNotificationDto;
 import com.parkease.parkinglot.repository.ParkingLotRepository;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ParkingLotServiceImpl implements ParkingLotService {
 
     private final ParkingLotRepository parkingLotRepository;
+    private final NotificationServiceClient notificationServiceClient;
 
     // ─────────────────────────────────────────────────
     // CREATE
@@ -169,7 +181,68 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     public LotResponse approveLot(UUID lotId) {
         ParkingLot lot = findOrThrow(lotId);
         lot.setIsApproved(true);
+        lot.setApprovalStatus(ApprovalStatus.APPROVED);
         return toResponse(parkingLotRepository.save(lot));
+    }
+
+    @Override
+    @Transactional
+    public LotResponse rejectLot(UUID lotId, RejectLotRequest request) {
+        ParkingLot lot = findOrThrow(lotId);
+
+        // Step 1: Send rejection notification to the manager FIRST
+        try {
+            log.info("📤 Sending notification to notification-service for managerId={}, lotId={}",
+                    lot.getManagerId(), lotId);
+
+            notificationServiceClient.sendToUser(
+                    SendToUserNotificationDto.builder()
+                            .managerId(lot.getManagerId())
+                            .title("Parking Lot Application Rejected ❌")
+                            .message(String.format(
+                                    "Your parking lot application '%s' has been rejected.\n\n"
+                                    + "Reason: %s\n\n"
+                                    + "The lot has been removed from the system. Please create a new parking lot and submit a new approval request.",
+                                    lot.getName(),
+                                    request.getReason()
+                            ))
+                            .notificationType("LOT_REJECTION")
+                            .relatedId(lotId)
+                            .relatedType("LOT")
+                            .build()
+            );
+            log.info("✅ Notification sent successfully to manager: managerId={}, lotId={}",
+                    lot.getManagerId(), lotId);
+        } catch (FeignException fe) {
+            // FeignException includes HTTP status code and response body
+            log.error("❌ FeignException calling notification-service for lotId={}, managerId={}",
+                    lotId, lot.getManagerId());
+            log.error("   HTTP Status: {}", fe.status());
+            log.error("   Response: {}", fe.contentUTF8());
+            log.error("   Message: {}", fe.getMessage());
+            // Continue with deletion even if notification fails
+        } catch (Exception e) {
+            // Other exceptions (connection errors, etc.)
+            log.error("❌ Exception calling notification-service for lotId={}, managerId={}: {}",
+                    lotId, lot.getManagerId(), e.getMessage(), e);
+            // Continue with deletion even if notification fails
+        }
+
+        // Step 2: Delete the lot from database (hard delete)
+        log.info("🗑️ Deleting rejected lot from database: lotId={}, name={}", lotId, lot.getName());
+        parkingLotRepository.deleteByLotId(lotId);
+
+        // Step 3: Return success response
+        log.info("✅ Lot rejection complete: lotId={} has been removed from system", lotId);
+
+        // Create a response indicating successful deletion
+        return LotResponse.builder()
+                .lotId(lotId)
+                .name(lot.getName())
+                .approvalStatus(ApprovalStatus.REJECTED)
+                .rejectionReason(request.getReason())
+                .rejectionDate(LocalDateTime.now())
+                .build();
     }
 
     // ─────────────────────────────────────────────────
@@ -193,7 +266,7 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     public void decrementAvailable(UUID lotId) {
         ParkingLot lot = findOrThrow(lotId);
         if (lot.getAvailableSpots() <= 0) {
-            throw new IllegalStateException("No available spots in lot: " + lotId);
+            throw new NoAvailableSpotsException("No available spots in lot: " + lotId);
         }
         lot.setAvailableSpots(lot.getAvailableSpots() - 1);
         parkingLotRepository.save(lot);
@@ -204,7 +277,7 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     public void incrementAvailable(UUID lotId) {
         ParkingLot lot = findOrThrow(lotId);
         if (lot.getAvailableSpots() >= lot.getTotalSpots()) {
-            throw new IllegalStateException("Available spots already at maximum for lot: " + lotId);
+            throw new NoAvailableSpotsException("Available spots already at maximum for lot: " + lotId);
         }
         lot.setAvailableSpots(lot.getAvailableSpots() + 1);
         parkingLotRepository.save(lot);
@@ -215,7 +288,7 @@ public class ParkingLotServiceImpl implements ParkingLotService {
     // ─────────────────────────────────────────────────
     private ParkingLot findOrThrow(UUID lotId) {
         return parkingLotRepository.findByLotId(lotId)
-                .orElseThrow(() -> new RuntimeException("Parking lot not found with id: " + lotId));
+                .orElseThrow(() -> new ParkingLotNotFoundException("Parking lot not found with id: " + lotId));
     }
 
     /**
@@ -224,7 +297,7 @@ public class ParkingLotServiceImpl implements ParkingLotService {
      */
     private void enforceOwnerAccess(ParkingLot lot, UUID requesterId) {
         if (!lot.getManagerId().equals(requesterId)) {
-            throw new SecurityException("Access denied: you do not own this parking lot");
+            throw new InvalidAccessException("Access denied: you do not own this parking lot");
         }
     }
 
@@ -244,6 +317,9 @@ public class ParkingLotServiceImpl implements ParkingLotService {
                 .closeTime(lot.getCloseTime())
                 .imageUrl(lot.getImageUrl())
                 .isApproved(lot.getIsApproved())
+                .approvalStatus(lot.getApprovalStatus())
+                .rejectionReason(lot.getRejectionReason())
+                .rejectionDate(lot.getRejectionDate())
                 .createdAt(lot.getCreatedAt())
                 .build();
     }
@@ -257,6 +333,7 @@ public class ParkingLotServiceImpl implements ParkingLotService {
                 .totalSpots(lot.getTotalSpots())
                 .availableSpots(lot.getAvailableSpots())
                 .isApproved(lot.getIsApproved())
+                .approvalStatus(lot.getApprovalStatus())
                 .createdAt(lot.getCreatedAt())
                 .build();
     }

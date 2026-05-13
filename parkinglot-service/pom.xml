@@ -59,6 +59,12 @@
 			<scope>runtime</scope>
 		</dependency>
 
+<!--		&lt;!&ndash; Flyway - Database Migration Tool &ndash;&gt;-->
+<!--		<dependency>-->
+<!--			<groupId>org.flywaydb</groupId>-->
+<!--			<artifactId>flyway-core</artifactId>-->
+<!--		</dependency>-->
+
 		<!-- JWT (compatible version retained) -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
@@ -110,6 +116,12 @@
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-config</artifactId>
+		</dependency>
+
+		<!-- OpenFeign — for inter-service communication -->
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-openfeign</artifactId>
 		</dependency>
 
 	</dependencies>

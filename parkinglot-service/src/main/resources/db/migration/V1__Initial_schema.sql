@@ -1,0 +1,4 @@
+-- V1__Initial_schema.sql
+-- Initial baseline schema for parking_lot table (captured for Flyway tracking)
+-- This is a placeholder since the table already exists
+-- Created to establish migration history baseline
